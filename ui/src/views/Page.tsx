@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchGroupStreaks, fetchGroups, type StreakGroup } from '../api'
-import StreakGroupTable from './StreakGroupTable'
+import StreakGroupTable from '../components/StreakGroupTable'
 import './Page.css'
 
 export default function Page() {
