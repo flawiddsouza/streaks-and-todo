@@ -6,13 +6,13 @@ import './Page.css'
 
 export default function Page() {
   const { groupId } = useParams<{ groupId: string }>()
-  const [streamName, setStreamName] = useState('')
+  const [streakName, setStreakName] = useState('')
   const [streakData, setStreakData] = useState<StreakGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const handleTitleChange = (event: React.FormEvent<HTMLHeadingElement>) => {
-    setStreamName(event.currentTarget.textContent || 'My Streaks')
+    setStreakName(event.currentTarget.textContent || '')
   }
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function Page() {
           const streakGroup = await fetchGroupStreaks(groupIdNumber)
           if (streakGroup) {
             setStreakData([streakGroup])
-            setStreamName(streakGroup.name)
+            setStreakName(streakGroup.name)
           } else {
             setError('Group not found')
           }
@@ -65,7 +65,7 @@ export default function Page() {
         onBlur={handleTitleChange}
         suppressContentEditableWarning={true}
       >
-        {streamName}
+        {streakName}
       </h1>
       <StreakGroupTable
         streakData={streakData}

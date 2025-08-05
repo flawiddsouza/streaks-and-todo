@@ -30,7 +30,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="page">
-        <h1 className="page-title">Stream Groups</h1>
+        <h1 className="page-title">Streak Groups</h1>
         <div>Loading groups...</div>
       </div>
     )
@@ -39,7 +39,7 @@ export default function Home() {
   if (error) {
     return (
       <div className="page">
-        <h1 className="page-title">Stream Groups</h1>
+        <h1 className="page-title">Streak Groups</h1>
         <div style={{ color: 'red' }}>Error: {error}</div>
       </div>
     )
@@ -47,7 +47,7 @@ export default function Home() {
 
   return (
     <div className="page">
-      <h1 className="page-title">Stream Groups</h1>
+      <h1 className="page-title">Streak Groups</h1>
 
       {groups.length === 0 ? (
         <div>No groups found</div>
