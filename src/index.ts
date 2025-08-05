@@ -189,7 +189,185 @@ const app = new Elysia()
       }
     },
   )
-  .listen(9008)
+
+// Additional endpoints for managing group streaks
+app
+  .get('/streaks', async ({ error }) => {
+    try {
+      const streaks = await db.select().from(streaksTable)
+      return { streaks }
+    } catch (err) {
+      console.error('Error fetching all streaks:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .post('/streaks', async ({ body, error }) => {
+    try {
+      const { name } = body as { name: string }
+
+      if (!name || name.trim().length === 0) {
+        return error(400, { message: 'Streak name is required' })
+      }
+
+      // Check if streak with same name already exists
+      const existingStreak = await db
+        .select()
+        .from(streaksTable)
+        .where(eq(streaksTable.name, name.trim()))
+        .limit(1)
+
+      if (existingStreak.length > 0) {
+        return error(409, { message: 'Streak with this name already exists' })
+      }
+
+      const [newStreak] = await db
+        .insert(streaksTable)
+        .values({ name: name.trim() })
+        .returning()
+
+      return { streak: newStreak }
+    } catch (err) {
+      console.error('Error creating streak:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .post(
+    '/groups/:groupId/streaks',
+    async ({ params: { groupId }, body, error }) => {
+      try {
+        const groupIdNum = parseInt(groupId)
+        const { streakId, sortOrder } = body as {
+          streakId: number
+          sortOrder: number
+        }
+
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
+
+        // Check if streak exists
+        const streak = await db
+          .select()
+          .from(streaksTable)
+          .where(eq(streaksTable.id, streakId))
+          .limit(1)
+
+        if (streak.length === 0) {
+          return error(404, { message: 'Streak not found' })
+        }
+
+        // Check if group exists
+        const group = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, groupIdNum))
+          .limit(1)
+
+        if (group.length === 0) {
+          return error(404, { message: 'Group not found' })
+        }
+
+        // Check if streak is already in group
+        const existing = await db
+          .select()
+          .from(streakGroupsTable)
+          .where(
+            and(
+              eq(streakGroupsTable.groupId, groupIdNum),
+              eq(streakGroupsTable.streakId, streakId),
+            ),
+          )
+          .limit(1)
+
+        if (existing.length > 0) {
+          return error(409, { message: 'Streak already in group' })
+        }
+
+        const [newStreakGroup] = await db
+          .insert(streakGroupsTable)
+          .values({
+            groupId: groupIdNum,
+            streakId,
+            sortOrder,
+          })
+          .returning()
+
+        return { streakGroup: newStreakGroup }
+      } catch (err) {
+        console.error('Error adding streak to group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+
+app.delete(
+  '/groups/:groupId/streaks/:streakId',
+  async ({ params: { groupId, streakId }, error }) => {
+    try {
+      const groupIdNum = parseInt(groupId)
+      const streakIdNum = parseInt(streakId)
+
+      if (Number.isNaN(groupIdNum) || Number.isNaN(streakIdNum)) {
+        return error(400, { message: 'Invalid group or streak ID' })
+      }
+
+      const deletedStreakGroup = await db
+        .delete(streakGroupsTable)
+        .where(
+          and(
+            eq(streakGroupsTable.groupId, groupIdNum),
+            eq(streakGroupsTable.streakId, streakIdNum),
+          ),
+        )
+        .returning()
+
+      if (deletedStreakGroup.length === 0) {
+        return error(404, { message: 'Streak not found in group' })
+      }
+
+      return { message: 'Streak removed from group successfully' }
+    } catch (err) {
+      console.error('Error removing streak from group:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  },
+)
+
+app.put(
+  '/groups/:groupId/streaks/reorder',
+  async ({ params: { groupId }, body, error }) => {
+    try {
+      const groupIdNum = parseInt(groupId)
+      const { streaks } = body as {
+        streaks: { streakId: number; sortOrder: number }[]
+      }
+
+      if (Number.isNaN(groupIdNum)) {
+        return error(400, { message: 'Invalid group ID' })
+      }
+
+      // Update each streak's sort order
+      for (const streak of streaks) {
+        await db
+          .update(streakGroupsTable)
+          .set({ sortOrder: streak.sortOrder })
+          .where(
+            and(
+              eq(streakGroupsTable.groupId, groupIdNum),
+              eq(streakGroupsTable.streakId, streak.streakId),
+            ),
+          )
+      }
+
+      return { message: 'Streak order updated successfully' }
+    } catch (err) {
+      console.error('Error updating streak order:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  },
+)
+
+app.listen(9008)
 
 console.log(
   `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`,

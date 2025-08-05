@@ -120,3 +120,95 @@ export const deleteStreakLog = async (
     throw new Error('Failed to delete streak log')
   }
 }
+
+// Group management functions
+export const fetchAllStreaks = async (): Promise<ApiStreak[]> => {
+  const response = await fetch(`${API_BASE_URL}/streaks`)
+  if (!response.ok) throw new Error('Failed to fetch all streaks')
+  const data = await response.json()
+  return data.streaks
+}
+
+export const addStreakToGroup = async (
+  groupId: number,
+  streakId: number,
+  sortOrder: number,
+): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/groups/${groupId}/streaks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      streakId,
+      sortOrder,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to add streak to group:', errorData)
+    throw new Error('Failed to add streak to group')
+  }
+}
+
+export const removeStreakFromGroup = async (
+  groupId: number,
+  streakId: number,
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/groups/${groupId}/streaks/${streakId}`,
+    {
+      method: 'DELETE',
+    },
+  )
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to remove streak from group:', errorData)
+    throw new Error('Failed to remove streak from group')
+  }
+}
+
+export const updateStreakOrder = async (
+  groupId: number,
+  streakUpdates: { streakId: number; sortOrder: number }[],
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/groups/${groupId}/streaks/reorder`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        streaks: streakUpdates,
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to update streak order:', errorData)
+    throw new Error('Failed to update streak order')
+  }
+}
+
+export const createStreak = async (name: string): Promise<ApiStreak> => {
+  const response = await fetch(`${API_BASE_URL}/streaks`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to create streak:', errorData)
+    throw new Error(errorData.message || 'Failed to create streak')
+  }
+
+  const data = await response.json()
+  return data.streak
+}

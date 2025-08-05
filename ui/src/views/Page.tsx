@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { fetchGroupStreaks, type StreakGroup } from '../api'
+import {
+  type ApiStreak,
+  addStreakToGroup,
+  createStreak,
+  fetchAllStreaks,
+  fetchGroupStreaks,
+  removeStreakFromGroup,
+  type StreakGroup,
+  updateStreakOrder,
+} from '../api'
+import ManageGroupModal from '../components/ManageGroupModal'
 import StreakGroupTable from '../components/StreakGroupTable'
 import './Page.css'
 
@@ -10,9 +20,103 @@ export default function Page() {
   const [streakData, setStreakData] = useState<StreakGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showManageModal, setShowManageModal] = useState(false)
+  const [allStreaks, setAllStreaks] = useState<ApiStreak[]>([])
+  const [managingGroup, setManagingGroup] = useState<StreakGroup | null>(null)
 
   const handleTitleChange = (event: React.FormEvent<HTMLHeadingElement>) => {
     setStreakName(event.currentTarget.textContent || '')
+  }
+
+  const handleManageGroup = async () => {
+    if (streakData.length > 0) {
+      setManagingGroup(streakData[0])
+      try {
+        const allStreaksData = await fetchAllStreaks()
+        setAllStreaks(allStreaksData)
+        setShowManageModal(true)
+      } catch (err) {
+        console.error('Error fetching all streaks:', err)
+      }
+    }
+  }
+
+  const handleRemoveStreak = async (streakId: number) => {
+    if (!managingGroup || !groupId) return
+
+    try {
+      await removeStreakFromGroup(parseInt(groupId), streakId)
+      const updatedGroup = await fetchGroupStreaks(parseInt(groupId))
+      if (updatedGroup) {
+        setStreakData([updatedGroup])
+        setManagingGroup(updatedGroup)
+      }
+    } catch (err) {
+      console.error('Error removing streak from group:', err)
+    }
+  }
+
+  const handleAddStreak = async (streakId: number) => {
+    if (!managingGroup || !groupId) return
+
+    try {
+      const sortOrder = managingGroup.streaks.length
+      await addStreakToGroup(parseInt(groupId), streakId, sortOrder)
+      const updatedGroup = await fetchGroupStreaks(parseInt(groupId))
+      if (updatedGroup) {
+        setStreakData([updatedGroup])
+        setManagingGroup(updatedGroup)
+      }
+    } catch (err) {
+      console.error('Error adding streak to group:', err)
+    }
+  }
+
+  const handleReorderStreak = async (fromIndex: number, toIndex: number) => {
+    if (!managingGroup || !groupId) return
+
+    const newStreaks = [...managingGroup.streaks]
+    const [moved] = newStreaks.splice(fromIndex, 1)
+    newStreaks.splice(toIndex, 0, moved)
+
+    try {
+      const updates = newStreaks.map((streak, index) => ({
+        streakId: streak.id,
+        sortOrder: index,
+      }))
+
+      await updateStreakOrder(parseInt(groupId), updates)
+
+      const updatedGroup = { ...managingGroup, streaks: newStreaks }
+      setStreakData([updatedGroup])
+      setManagingGroup(updatedGroup)
+    } catch (err) {
+      console.error('Error reordering streaks:', err)
+    }
+  }
+
+  const handleCreateStreak = async (name: string) => {
+    if (!managingGroup || !groupId) return
+
+    try {
+      const newStreak = await createStreak(name)
+
+      const sortOrder = managingGroup.streaks.length
+      await addStreakToGroup(parseInt(groupId), newStreak.id, sortOrder)
+
+      const [updatedGroup, allStreaksData] = await Promise.all([
+        fetchGroupStreaks(parseInt(groupId)),
+        fetchAllStreaks(),
+      ])
+
+      if (updatedGroup) {
+        setStreakData([updatedGroup])
+        setManagingGroup(updatedGroup)
+        setAllStreaks(allStreaksData)
+      }
+    } catch (err) {
+      console.error('Error creating and adding streak:', err)
+    }
   }
 
   useEffect(() => {
@@ -22,7 +126,6 @@ export default function Page() {
 
       try {
         if (groupId) {
-          // Load specific group
           const groupIdNumber = parseInt(groupId, 10)
           if (Number.isNaN(groupIdNumber)) {
             setError('Invalid group ID')
@@ -37,7 +140,6 @@ export default function Page() {
             setError('Group not found')
           }
         } else {
-          // No group ID provided
           setError('No group ID provided')
         }
       } catch (err) {
@@ -53,11 +155,27 @@ export default function Page() {
 
   return (
     <div className="page">
-      {groupId && (
-        <Link to="/" className="back-link">
-          ← Back to Groups
-        </Link>
-      )}
+      <nav className="page-nav">
+        <div className="nav-left">
+          {groupId && (
+            <Link to="/" className="back-link">
+              ← Back to Groups
+            </Link>
+          )}
+        </div>
+        <div className="nav-right">
+          {groupId && (
+            <button
+              type="button"
+              className="manage-group-btn"
+              onClick={handleManageGroup}
+            >
+              Manage Group
+            </button>
+          )}
+        </div>
+      </nav>
+
       <h1
         className="page-title"
         contentEditable="plaintext-only"
@@ -67,11 +185,23 @@ export default function Page() {
       >
         {streakName}
       </h1>
+
       <StreakGroupTable
         streakData={streakData}
         loading={loading}
         error={error}
         onStreakDataChange={setStreakData}
+      />
+
+      <ManageGroupModal
+        isOpen={showManageModal}
+        onClose={() => setShowManageModal(false)}
+        group={managingGroup}
+        allStreaks={allStreaks}
+        onRemoveStreak={handleRemoveStreak}
+        onAddStreak={handleAddStreak}
+        onReorderStreak={handleReorderStreak}
+        onCreateStreak={handleCreateStreak}
       />
     </div>
   )

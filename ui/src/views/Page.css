@@ -9,6 +9,10 @@
   padding-bottom: 2rem;
 }
 
+.page:has(.page-nav) {
+  padding-top: 0;
+}
+
 .page-title {
   margin-top: 0;
   margin-bottom: 0.5rem;
@@ -46,13 +50,46 @@
 
 .back-link {
   display: inline-block;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   color: #666;
   text-decoration: none;
-  font-size: 0.9rem;
+  padding: 0.5rem 0;
 }
 
 .back-link:hover {
   color: #333;
-  text-decoration: underline;
+}
+
+/* Navigation Bar */
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.nav-left {
+  display: flex;
+  align-items: center;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+}
+
+.manage-group-btn {
+  background: #007acc;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.manage-group-btn:hover {
+  background: #005999;
 }
