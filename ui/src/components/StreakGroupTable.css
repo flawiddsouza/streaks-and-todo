@@ -10,15 +10,14 @@
 .virtuoso-table-container table {
   border-collapse: separate;
   border-spacing: 0;
-  width: 100%;
+  max-width: 100%;
+  width: auto;
 }
 
 .virtuoso-table-container th,
 .virtuoso-table-container td {
   border: 1px solid grey;
   border-bottom: none;
-  margin: 0;
-  padding: 0;
 }
 
 .virtuoso-table-container th:not(:first-child),
