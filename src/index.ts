@@ -1,5 +1,5 @@
 import { cors } from '@elysiajs/cors'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { db } from './db'
 import {
@@ -395,7 +395,7 @@ app
       const lastGroup = await db
         .select({ maxSortOrder: groupsTable.sortOrder })
         .from(groupsTable)
-        .orderBy(groupsTable.sortOrder)
+        .orderBy(desc(groupsTable.sortOrder))
         .limit(1)
 
       const newSortOrder =
