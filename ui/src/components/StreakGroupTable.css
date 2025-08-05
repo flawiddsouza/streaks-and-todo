@@ -1,0 +1,120 @@
+.virtuoso-table-container {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+}
+
+.virtuoso-table-container table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.virtuoso-table-container th,
+.virtuoso-table-container td {
+  border: 1px solid grey;
+  border-bottom: none;
+  margin: 0;
+  padding: 0;
+}
+
+.virtuoso-table-container th:not(:first-child),
+.virtuoso-table-container td:not(:first-child) {
+  border-left: none;
+}
+
+.virtuoso-table-container thead tr:last-child th,
+.virtuoso-table-container thead tr:last-child td {
+  border-bottom: 1px solid grey;
+}
+
+.virtuoso-table-container tbody tr:first-child th,
+.virtuoso-table-container tbody tr:first-child td {
+  border-top: none;
+}
+
+.virtuoso-table-container tfoot tr:last-child th,
+.virtuoso-table-container tfoot tr:last-child td {
+  border-bottom: 1px solid grey;
+}
+
+/* Loading and error states */
+.loading-container,
+.error-container,
+.no-data-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #6c757d;
+}
+
+.error-container {
+  color: #dc3545;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.retry-button {
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.retry-button:hover {
+  background-color: #0056b3;
+}
+
+/* Cell styles */
+.table-cell,
+.header-cell,
+.footer-cell,
+.footer-label {
+  padding: 2px 5px;
+  border: 1px solid grey;
+  color: #000000;
+  text-align: center;
+  font-size: 14px;
+}
+
+.header-cell,
+.footer-label,
+.footer-cell {
+  font-weight: 600;
+  background-color: #ffffff;
+}
+
+/* Column widths */
+.header-cell-date,
+.date-cell {
+  width: 80px;
+}
+
+.header-cell-day,
+.day-cell {
+  width: 100px;
+}
+
+/* Row highlights */
+.current-date-background {
+  background-color: #ffeb9c;
+  color: #9c5700;
+}
+
+.all-absent-background {
+  background-color: lightgrey;
+  opacity: 0.5;
+}
+
+/* Streak cell states */
+.streak-cell-present {
+  color: #25c486;
+  font-weight: bold;
+  background-color: #e7fff6;
+}
