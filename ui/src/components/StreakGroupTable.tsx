@@ -1,13 +1,6 @@
 import dayjs from 'dayjs'
-import {
-  type Dispatch,
-  type SetStateAction,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
-import { TableVirtuoso, type TableVirtuosoHandle } from 'react-virtuoso'
+import { type Dispatch, type SetStateAction, useMemo } from 'react'
+import { TableVirtuoso } from 'react-virtuoso'
 import {
   createStreakLog,
   deleteStreakLog,
@@ -109,8 +102,6 @@ export default function StreakGroupTable({
   error,
   onStreakDataChange,
 }: StreakGroupTableProps) {
-  const virtuosoRef = useRef<TableVirtuosoHandle>(null)
-
   const allStreaks = useMemo(() => {
     return streakData.flatMap((group) =>
       group.streaks.map((streak) => ({
@@ -226,26 +217,7 @@ export default function StreakGroupTable({
     }
   }
 
-  const hasScrolledToBottom = useRef(false)
-  const [isTableVisible, setIsTableVisible] = useState(false)
   const currentDate = dayjs().format('YYYY-MM-DD')
-
-  useEffect(() => {
-    if (
-      dateRows.length > 0 &&
-      virtuosoRef.current &&
-      !hasScrolledToBottom.current &&
-      !loading
-    ) {
-      setTimeout(() => {
-        virtuosoRef.current?.scrollToIndex(dateRows.length - 1)
-        hasScrolledToBottom.current = true
-        setTimeout(() => {
-          setIsTableVisible(true)
-        }, 100)
-      }, 100)
-    }
-  }, [dateRows, loading])
 
   if (loading)
     return (
@@ -279,9 +251,8 @@ export default function StreakGroupTable({
   return (
     <div className="virtuoso-table-container">
       <TableVirtuoso
-        ref={virtuosoRef}
-        style={{ opacity: isTableVisible ? 1 : 0 }}
         data={dateRows}
+        initialTopMostItemIndex={dateRows.length - 1}
         fixedHeaderContent={() => (
           <tr className="table-header">
             <th className="header-cell header-cell-date">Date</th>
