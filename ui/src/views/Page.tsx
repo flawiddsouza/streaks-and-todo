@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import {
   type ApiStreak,
@@ -8,6 +8,7 @@ import {
   fetchGroupStreaks,
   removeStreakFromGroup,
   type StreakGroup,
+  updateGroup,
   updateStreakOrder,
 } from '../api'
 import ManageGroupModal from '../components/ManageGroupModal'
@@ -16,16 +17,36 @@ import './Page.css'
 
 export default function Page() {
   const { groupId } = useParams<{ groupId: string }>()
-  const [streakName, setStreakName] = useState('')
   const [streakData, setStreakData] = useState<StreakGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showManageModal, setShowManageModal] = useState(false)
   const [allStreaks, setAllStreaks] = useState<ApiStreak[]>([])
   const [managingGroup, setManagingGroup] = useState<StreakGroup | null>(null)
+  const titleRef = useRef<HTMLHeadingElement>(null)
 
-  const handleTitleChange = (event: React.FormEvent<HTMLHeadingElement>) => {
-    setStreakName(event.currentTarget.textContent || '')
+  const handleTitleChange = async (
+    event: React.FormEvent<HTMLHeadingElement>,
+  ) => {
+    const newName = event.currentTarget.textContent || ''
+    await updateGroup(parseInt(groupId || '0'), newName)
+  }
+
+  const handleTitleKeyDown = (
+    event: React.KeyboardEvent<HTMLHeadingElement>,
+  ) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+    }
+  }
+
+  const handleTitlePaste = (
+    event: React.ClipboardEvent<HTMLHeadingElement>,
+  ) => {
+    event.preventDefault()
+    const paste = event.clipboardData.getData('text/plain')
+    const cleanPaste = paste.replace(/\r?\n|\r/g, ' ').trim()
+    document.execCommand('insertText', false, cleanPaste)
   }
 
   const handleManageGroup = async () => {
@@ -135,7 +156,9 @@ export default function Page() {
           const streakGroup = await fetchGroupStreaks(groupIdNumber)
           if (streakGroup) {
             setStreakData([streakGroup])
-            setStreakName(streakGroup.name)
+            if (titleRef.current) {
+              titleRef.current.textContent = streakGroup.name || ''
+            }
           } else {
             setError('Group not found')
           }
@@ -176,15 +199,17 @@ export default function Page() {
         </div>
       </nav>
 
+      {/** biome-ignore lint/a11y/useHeadingContent: dynamic replacement */}
       <h1
+        ref={titleRef}
         className="page-title"
         contentEditable="plaintext-only"
         spellCheck={false}
-        onBlur={handleTitleChange}
+        onInput={handleTitleChange}
+        onKeyDown={handleTitleKeyDown}
+        onPaste={handleTitlePaste}
         suppressContentEditableWarning={true}
-      >
-        {streakName}
-      </h1>
+      ></h1>
 
       <StreakGroupTable
         streakData={streakData}
