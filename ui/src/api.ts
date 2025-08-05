@@ -19,6 +19,7 @@ export interface ApiStreak {
 export interface ApiGroup {
   id: number
   name: string
+  sortOrder: number
 }
 
 export interface ApiStreakGroupResponse {
@@ -211,4 +212,78 @@ export const createStreak = async (name: string): Promise<ApiStreak> => {
 
   const data = await response.json()
   return data.streak
+}
+
+// Group CRUD operations
+export const createGroup = async (name: string): Promise<ApiGroup> => {
+  const response = await fetch(`${API_BASE_URL}/groups`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to create group:', errorData)
+    throw new Error(errorData.message || 'Failed to create group')
+  }
+
+  const data = await response.json()
+  return data.group
+}
+
+export const deleteGroup = async (groupId: number): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/groups/${groupId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to delete group:', errorData)
+    throw new Error('Failed to delete group')
+  }
+}
+
+export const updateGroup = async (
+  groupId: number,
+  name: string,
+): Promise<ApiGroup> => {
+  const response = await fetch(`${API_BASE_URL}/groups/${groupId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to update group:', errorData)
+    throw new Error('Failed to update group')
+  }
+
+  const data = await response.json()
+  return data.group
+}
+
+export const updateGroupOrder = async (
+  groupUpdates: { groupId: number; sortOrder: number }[],
+): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/groups/reorder`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      groups: groupUpdates,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to update group order:', errorData)
+    throw new Error('Failed to update group order')
+  }
 }

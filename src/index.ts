@@ -92,7 +92,10 @@ const app = new Elysia()
   })
   .get('/groups', async ({ error }) => {
     try {
-      const groups = await db.select().from(groupsTable)
+      const groups = await db
+        .select()
+        .from(groupsTable)
+        .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
       return { groups }
     } catch (err) {
       console.error('Error fetching groups:', err)
@@ -366,6 +369,149 @@ app.put(
     }
   },
 )
+
+// Group CRUD operations
+app
+  .post('/groups', async ({ body, error }) => {
+    try {
+      const { name } = body as { name: string }
+
+      if (!name || name.trim().length === 0) {
+        return error(400, { message: 'Group name is required' })
+      }
+
+      // Check if group with same name already exists
+      const existingGroup = await db
+        .select()
+        .from(groupsTable)
+        .where(eq(groupsTable.name, name.trim()))
+        .limit(1)
+
+      if (existingGroup.length > 0) {
+        return error(409, { message: 'Group with this name already exists' })
+      }
+
+      // Get the highest sort order to append the new group at the end
+      const lastGroup = await db
+        .select({ maxSortOrder: groupsTable.sortOrder })
+        .from(groupsTable)
+        .orderBy(groupsTable.sortOrder)
+        .limit(1)
+
+      const newSortOrder =
+        lastGroup.length > 0 ? (lastGroup[0].maxSortOrder || 0) + 1 : 0
+
+      const [newGroup] = await db
+        .insert(groupsTable)
+        .values({
+          name: name.trim(),
+          sortOrder: newSortOrder,
+        })
+        .returning()
+
+      return { group: newGroup }
+    } catch (err) {
+      console.error('Error creating group:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .delete('/groups/:groupId', async ({ params: { groupId }, error }) => {
+    try {
+      const groupIdNum = parseInt(groupId)
+
+      if (Number.isNaN(groupIdNum)) {
+        return error(400, { message: 'Invalid group ID' })
+      }
+
+      // First remove all streak associations with this group
+      await db
+        .delete(streakGroupsTable)
+        .where(eq(streakGroupsTable.groupId, groupIdNum))
+
+      // Then delete the group itself
+      const deletedGroup = await db
+        .delete(groupsTable)
+        .where(eq(groupsTable.id, groupIdNum))
+        .returning()
+
+      if (deletedGroup.length === 0) {
+        return error(404, { message: 'Group not found' })
+      }
+
+      return { message: 'Group deleted successfully', group: deletedGroup[0] }
+    } catch (err) {
+      console.error('Error deleting group:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .put('/groups/:groupId', async ({ params: { groupId }, body, error }) => {
+    try {
+      const groupIdNum = parseInt(groupId)
+      const { name } = body as { name: string }
+
+      if (Number.isNaN(groupIdNum)) {
+        return error(400, { message: 'Invalid group ID' })
+      }
+
+      if (!name || name.trim().length === 0) {
+        return error(400, { message: 'Group name is required' })
+      }
+
+      // Check if another group with the same name already exists (excluding current group)
+      const existingGroup = await db
+        .select()
+        .from(groupsTable)
+        .where(eq(groupsTable.name, name.trim()))
+        .limit(1)
+
+      if (existingGroup.length > 0 && existingGroup[0].id !== groupIdNum) {
+        return error(409, { message: 'Group with this name already exists' })
+      }
+
+      if (existingGroup.length > 0) {
+        return error(409, { message: 'Group with this name already exists' })
+      }
+
+      const [updatedGroup] = await db
+        .update(groupsTable)
+        .set({ name: name.trim() })
+        .where(eq(groupsTable.id, groupIdNum))
+        .returning()
+
+      if (!updatedGroup) {
+        return error(404, { message: 'Group not found' })
+      }
+
+      return { group: updatedGroup }
+    } catch (err) {
+      console.error('Error updating group:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .put('/groups/reorder', async ({ body, error }) => {
+    try {
+      const { groups } = body as {
+        groups: { groupId: number; sortOrder: number }[]
+      }
+
+      if (!groups || !Array.isArray(groups)) {
+        return error(400, { message: 'Invalid groups data' })
+      }
+
+      // Update each group's sort order
+      for (const group of groups) {
+        await db
+          .update(groupsTable)
+          .set({ sortOrder: group.sortOrder })
+          .where(eq(groupsTable.id, group.groupId))
+      }
+
+      return { message: 'Group order updated successfully' }
+    } catch (err) {
+      console.error('Error updating group order:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
 
 app.listen(9008)
 
