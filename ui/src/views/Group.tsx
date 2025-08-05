@@ -181,7 +181,7 @@ export default function Group() {
       <nav className="page-nav">
         <div className="nav-left">
           {groupId && (
-            <Link to="/" className="back-link">
+            <Link to="/groups" className="back-link">
               ← Back to Groups
             </Link>
           )}
