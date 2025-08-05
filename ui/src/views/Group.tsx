@@ -190,7 +190,7 @@ export default function Group() {
           {groupId && (
             <button
               type="button"
-              className="manage-group-btn"
+              className="btn btn-primary"
               onClick={handleManageGroup}
             >
               Manage Group

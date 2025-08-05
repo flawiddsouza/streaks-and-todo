@@ -157,7 +157,7 @@ export default function Home() {
         <button
           type="button"
           onClick={() => setIsManaging(!isManaging)}
-          className={`manage-btn ${isManaging ? 'active' : ''}`}
+          className={`btn btn-primary ${isManaging ? 'active' : ''}`}
         >
           {isManaging ? 'Done Managing' : 'Manage Groups'}
         </button>
@@ -177,7 +177,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={!newGroupName.trim() || isCreating}
-              className="create-btn"
+              className="btn btn-success"
             >
               {isCreating ? 'Creating...' : 'Create Group'}
             </button>
@@ -192,7 +192,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setIsManaging(true)}
-              className="create-first-btn"
+              className="btn btn-primary btn-lg"
             >
               Create Your First Group
             </button>
@@ -212,7 +212,7 @@ export default function Home() {
                       type="button"
                       onClick={() => moveGroup(index, index - 1)}
                       disabled={index === 0}
-                      className="reorder-btn"
+                      className="btn btn-secondary btn-sm"
                       title="Move up"
                     >
                       ↑
@@ -221,7 +221,7 @@ export default function Home() {
                       type="button"
                       onClick={() => moveGroup(index, index + 1)}
                       disabled={index === groups.length - 1}
-                      className="reorder-btn"
+                      className="btn btn-secondary btn-sm"
                       title="Move down"
                     >
                       ↓
@@ -240,7 +240,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => handleSaveEdit(group.id)}
-                          className="save-btn"
+                          className="btn btn-success btn-md"
                           disabled={!editingGroupName.trim()}
                         >
                           Save
@@ -248,7 +248,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={handleCancelEdit}
-                          className="cancel-btn"
+                          className="btn btn-secondary btn-md"
                         >
                           Cancel
                         </button>
@@ -269,7 +269,7 @@ export default function Home() {
                         <button
                           type="button"
                           onClick={() => handleEditGroup(group)}
-                          className="edit-btn"
+                          className="btn btn-warning btn-md"
                           title="Edit group name"
                         >
                           Edit
@@ -279,7 +279,7 @@ export default function Home() {
                           onClick={() =>
                             handleDeleteGroup(group.id, group.name)
                           }
-                          className="delete-btn"
+                          className="btn btn-danger btn-md"
                           title="Delete group"
                         >
                           Delete

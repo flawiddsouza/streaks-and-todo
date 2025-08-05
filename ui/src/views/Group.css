@@ -50,17 +50,3 @@
   display: flex;
   align-items: center;
 }
-
-.manage-group-btn {
-  background: #007acc;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
-.manage-group-btn:hover {
-  background: #005999;
-}

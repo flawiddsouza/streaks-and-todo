@@ -64,7 +64,7 @@ export default function ManageGroupModal({
                   type="button"
                   onClick={() => onReorderStreak(index, Math.max(0, index - 1))}
                   disabled={index === 0}
-                  className="reorder-btn"
+                  className="btn btn-secondary btn-sm"
                   aria-label={`Move ${streak.name} up`}
                 >
                   ↑
@@ -78,7 +78,7 @@ export default function ManageGroupModal({
                     )
                   }
                   disabled={index === group.streaks.length - 1}
-                  className="reorder-btn"
+                  className="btn btn-secondary btn-sm"
                   aria-label={`Move ${streak.name} down`}
                 >
                   ↓
@@ -86,7 +86,7 @@ export default function ManageGroupModal({
                 <button
                   type="button"
                   onClick={() => onRemoveStreak(streak.id)}
-                  className="remove-btn"
+                  className="btn btn-danger btn-sm"
                   aria-label={`Remove ${streak.name} from group`}
                 >
                   Remove
@@ -109,7 +109,7 @@ export default function ManageGroupModal({
               <button
                 type="button"
                 onClick={() => onAddStreak(streak.id)}
-                className="add-btn"
+                className="btn btn-success btn-sm"
                 aria-label={`Add ${streak.name} to group`}
               >
                 Add
@@ -137,7 +137,7 @@ export default function ManageGroupModal({
             <button
               type="submit"
               disabled={!newStreakName.trim() || isCreating}
-              className="create-btn"
+              className="btn btn-primary"
             >
               {isCreating ? 'Creating...' : 'Create & Add'}
             </button>
