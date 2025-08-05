@@ -253,6 +253,7 @@ export default function StreakGroupTable({
       <TableVirtuoso
         data={dateRows}
         initialTopMostItemIndex={dateRows.length - 1}
+        increaseViewportBy={2000}
         fixedHeaderContent={() => (
           <tr className="table-header">
             <th className="header-cell header-cell-date">Date</th>
