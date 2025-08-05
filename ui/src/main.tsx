@@ -1,10 +1,5 @@
-import './main.css'
-import StreakGroupTable from './components/StreakGroupTable'
+import Page from './components/Page'
 
 export function Main() {
-  return (
-    <div className="main-container">
-      <StreakGroupTable />
-    </div>
-  )
+  return <Page />
 }
