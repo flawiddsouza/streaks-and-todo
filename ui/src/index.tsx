@@ -1,8 +1,8 @@
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import NotFound from './components/NotFound'
+import Group from './views/Group'
 import Home from './views/Home'
-import Page from './views/Page'
 import './index.css'
 
 const router = createBrowserRouter([
@@ -12,7 +12,7 @@ const router = createBrowserRouter([
   },
   {
     path: '/group/:groupId',
-    element: <Page />,
+    element: <Group />,
   },
   {
     path: '*',

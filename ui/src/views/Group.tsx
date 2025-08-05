@@ -13,9 +13,9 @@ import {
 } from '../api'
 import ManageGroupModal from '../components/ManageGroupModal'
 import StreakGroupTable from '../components/StreakGroupTable'
-import './Page.css'
+import './Group.css'
 
-export default function Page() {
+export default function Group() {
   const { groupId } = useParams<{ groupId: string }>()
   const [streakData, setStreakData] = useState<StreakGroup[]>([])
   const [loading, setLoading] = useState(true)
