@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { fetchGroupStreaks, fetchGroups, type StreakGroup } from '../api'
+import { Link, useParams } from 'react-router'
+import { fetchGroupStreaks, type StreakGroup } from '../api'
 import StreakGroupTable from '../components/StreakGroupTable'
 import './Page.css'
 
 export default function Page() {
-  const [streamName, setStreamName] = useState('My Streaks')
+  const { groupId } = useParams<{ groupId: string }>()
+  const [streamName, setStreamName] = useState('')
   const [streakData, setStreakData] = useState<StreakGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -14,26 +16,30 @@ export default function Page() {
   }
 
   useEffect(() => {
-    const fetchAllData = async () => {
+    const fetchData = async () => {
       setLoading(true)
       setError(null)
 
       try {
-        const groupsList = await fetchGroups()
-        if (groupsList.length === 0) {
-          setStreakData([])
-          return
+        if (groupId) {
+          // Load specific group
+          const groupIdNumber = parseInt(groupId, 10)
+          if (Number.isNaN(groupIdNumber)) {
+            setError('Invalid group ID')
+            return
+          }
+
+          const streakGroup = await fetchGroupStreaks(groupIdNumber)
+          if (streakGroup) {
+            setStreakData([streakGroup])
+            setStreamName(streakGroup.name)
+          } else {
+            setError('Group not found')
+          }
+        } else {
+          // No group ID provided
+          setError('No group ID provided')
         }
-
-        const streakGroupPromises = groupsList.map((group) =>
-          fetchGroupStreaks(group.id),
-        )
-        const streakGroups = await Promise.all(streakGroupPromises)
-        const validStreakGroups = streakGroups.filter(
-          (group): group is StreakGroup => group !== null,
-        )
-
-        setStreakData(validStreakGroups)
       } catch (err) {
         console.error('Error fetching data:', err)
         setError('Failed to fetch streak data')
@@ -42,11 +48,16 @@ export default function Page() {
       }
     }
 
-    fetchAllData()
-  }, [])
+    fetchData()
+  }, [groupId])
 
   return (
     <div className="page">
+      {groupId && (
+        <Link to="/" className="back-link">
+          ← Back to Groups
+        </Link>
+      )}
       <h1
         className="page-title"
         contentEditable="plaintext-only"
