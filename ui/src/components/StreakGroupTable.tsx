@@ -126,7 +126,7 @@ export default function StreakGroupTable({
     const recordsLookup = new Map(
       allStreaks.map((streak) => [
         streak.name,
-        new Map(streak.records.map((record) => [record.date, record.present])),
+        new Map(streak.records.map((record) => [record.date, { present: record.present, note: record.note }])),
       ]),
     )
 
@@ -136,7 +136,7 @@ export default function StreakGroupTable({
       records: new Map(
         allStreaks.map((streak) => [
           streak.name,
-          recordsLookup.get(streak.name)?.get(date) ?? false,
+          recordsLookup.get(streak.name)?.get(date) ?? { present: false, note: undefined },
         ]),
       ),
     }))
@@ -170,7 +170,7 @@ export default function StreakGroupTable({
     if (!streakLocation || !dateRow) return
 
     const { groupIndex, streakIndex, streakId } = streakLocation
-    const currentPresent = dateRow.records.get(streakName) ?? false
+    const currentPresent = dateRow.records.get(streakName)?.present ?? false
     const newPresent = !currentPresent
 
     try {
@@ -263,6 +263,7 @@ export default function StreakGroupTable({
                 <div>{streak.name}</div>
               </th>
             ))}
+            <th className="header-cell header-cell-notes">Notes</th>
           </tr>
         )}
         fixedFooterContent={() => (
@@ -275,12 +276,13 @@ export default function StreakGroupTable({
                 {streakTotals.get(streak.name) || 0}
               </td>
             ))}
+            <td className="footer-cell">-</td>
           </tr>
         )}
         itemContent={(_index, dateRow) => {
           const isCurrentDate = dateRow.date === currentDate
           const allStreaksAbsent = allStreaks.every(
-            (streak) => !dateRow.records.get(streak.name),
+            (streak) => !dateRow.records.get(streak.name)?.present,
           )
 
           const rowBackgroundClass = isCurrentDate
@@ -298,7 +300,9 @@ export default function StreakGroupTable({
                 {dateRow.dayOfWeek}
               </td>
               {allStreaks.map((streak) => {
-                const present = dateRow.records.get(streak.name)
+                const recordData = dateRow.records.get(streak.name)
+                const present = recordData?.present ?? false
+                const hasNote = recordData?.note && recordData.note.trim().length > 0
                 const presentClass = present ? 'streak-cell-present' : ''
                 return (
                   // biome-ignore lint/a11y/useKeyWithClickEvents: user requested no accessibility fixes
@@ -311,9 +315,25 @@ export default function StreakGroupTable({
                     style={{ cursor: 'pointer' }}
                   >
                     {present ? 'x' : ''}
+                    {hasNote && (
+                      <div className="note-earmark" />
+                    )}
                   </td>
                 )
               })}
+              <td className={`table-cell notes-cell ${rowBackgroundClass}`}>
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: contentEditable div requires interaction */}
+                <div
+                  contentEditable
+                  spellCheck={false}
+                  className="notes-input"
+                  suppressContentEditableWarning={true}
+                  onBlur={(e) => {
+                    // Notes content handling would go here in the future
+                    console.log('Notes updated for', dateRow.date, ':', e.currentTarget.textContent)
+                  }}
+                />
+              </td>
             </>
           )
         }}

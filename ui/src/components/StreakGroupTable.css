@@ -79,6 +79,7 @@
   border: 1px solid grey;
   color: #000000;
   text-align: center;
+  vertical-align: top;
   font-size: 14px;
   white-space: nowrap;
 }
@@ -101,6 +102,12 @@
   width: 100px;
 }
 
+.header-cell-notes,
+.notes-cell {
+  width: 200px;
+  min-width: 150px;
+}
+
 /* Row highlights */
 .current-date-background {
   background-color: #ffeb9c;
@@ -113,8 +120,35 @@
 }
 
 /* Streak cell states */
+.streak-cell {
+  position: relative;
+}
+
 .streak-cell-present {
   color: #25c486;
   font-weight: bold;
   background-color: #e7fff6;
+}
+
+/* Note earmark indicator */
+.note-earmark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-top: 8px solid #edc900;
+  pointer-events: none;
+}
+
+/* Notes cell styles */
+.notes-cell {
+  padding: 0;
+  text-align: left;
+}
+
+.notes-cell > .notes-input {
+  padding: 2px 5px;
+  outline: none;
 }
