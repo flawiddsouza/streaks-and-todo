@@ -5,7 +5,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "bun run --watch src/index.ts",
     "format": "biome check --write",
-    "db:update": "drizzle-kit push"
+    "db:update": "drizzle-kit push",
+    "build-ui": "cd ui && bun run build",
+    "build-ui-watch": "cd ui && bun start",
+    "dev:all": "concurrently \"bun run dev\" \"bun run build-ui-watch\" --names \"SERVER,UI\" --prefix-colors \"blue,green\""
   },
   "dependencies": {
     "@elysiajs/cors": "^1.3.3",
@@ -16,6 +19,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.1.3",
     "bun-types": "latest",
+    "concurrently": "^9.2.0",
     "drizzle-kit": "^0.31.4"
   },
   "module": "src/index.js"

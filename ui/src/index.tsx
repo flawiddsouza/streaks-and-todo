@@ -4,6 +4,7 @@ import NotFound from './components/NotFound'
 import Group from './views/Group'
 import Groups from './views/Groups'
 import Home from './views/Home'
+import Todo from './views/Todo'
 import './index.css'
 
 const router = createBrowserRouter([
@@ -18,6 +19,10 @@ const router = createBrowserRouter([
   {
     path: '/group/:groupId',
     element: <Group />,
+  },
+  {
+    path: '/todo',
+    element: <Todo />,
   },
   {
     path: '*',
