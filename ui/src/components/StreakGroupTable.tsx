@@ -1,7 +1,12 @@
 import dayjs from 'dayjs'
-import { type Dispatch, type SetStateAction, useMemo } from 'react'
+import { type Dispatch, type SetStateAction, useMemo, useRef } from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
-import { type StreakGroup, type StreakRecord, toggleStreakLog } from '../api'
+import {
+  type StreakGroup,
+  type StreakRecord,
+  toggleStreakLog,
+  updateStreakLogNote,
+} from '../api'
 import './StreakGroupTable.css'
 
 interface StreakGroupTableProps {
@@ -97,6 +102,9 @@ export default function StreakGroupTable({
   error,
   onStreakDataChange,
 }: StreakGroupTableProps) {
+  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const longPressTriggeredRef = useRef(false)
+
   const allStreaks = useMemo(() => {
     return streakData.flatMap((group) =>
       group.streaks.map((streak) => ({
@@ -218,6 +226,150 @@ export default function StreakGroupTable({
     }
   }
 
+  const updateNoteContent = async (
+    streakName: string,
+    date: string,
+    newNote: string,
+  ) => {
+    const streakLocation = streakLookup.get(streakName)
+    if (!streakLocation) return
+
+    const { groupIndex, streakIndex, streakId } = streakLocation
+
+    try {
+      await updateStreakLogNote(streakId, date, newNote)
+
+      onStreakDataChange((prevData) => {
+        const newData = [...prevData]
+        const targetGroup = { ...newData[groupIndex] }
+        const targetStreaks = [...targetGroup.streaks]
+        const targetStreak = { ...targetStreaks[streakIndex] }
+        const updatedRecords = [...targetStreak.records]
+
+        const recordIndex = updatedRecords.findIndex((r) => r.date === date)
+
+        if (recordIndex >= 0) {
+          updatedRecords[recordIndex] = {
+            ...updatedRecords[recordIndex],
+            note: newNote,
+          }
+        } else {
+          updatedRecords.push({ date, done: false, note: newNote })
+        }
+
+        targetStreak.records = updatedRecords
+        targetStreaks[streakIndex] = targetStreak
+        targetGroup.streaks = targetStreaks
+        newData[groupIndex] = targetGroup
+
+        return newData
+      })
+    } catch (error) {
+      console.error('Error updating note:', error)
+    }
+  }
+
+  const handleNoteAction = (streakName: string, date: string) => {
+    const dateRow = dateRows.find((row) => row.date === date)
+    if (!dateRow) return
+
+    const recordData = dateRow.records.get(streakName)
+    const hasNote = recordData?.note && recordData.note.trim().length > 0
+
+    if (hasNote) {
+      // Focus on existing note
+      setTimeout(() => {
+        const noteElement = document.querySelector(
+          `[data-streak-note="${streakName}-${date}"]`,
+        ) as HTMLElement
+        if (noteElement) {
+          noteElement.focus()
+          // Place cursor at end of text
+          const range = document.createRange()
+          const selection = window.getSelection()
+          range.selectNodeContents(noteElement)
+          range.collapse(false)
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+        }
+      }, 0)
+    } else {
+      // Create new note
+      updateNoteContent(streakName, date, 'Note: ')
+      setTimeout(() => {
+        const noteElement = document.querySelector(
+          `[data-streak-note="${streakName}-${date}"]`,
+        ) as HTMLElement
+        if (noteElement) {
+          noteElement.focus()
+          // Select all text so user can start typing
+          const range = document.createRange()
+          const selection = window.getSelection()
+          range.selectNodeContents(noteElement)
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+        }
+      }, 200)
+    }
+  }
+
+  const handleStreakCellMouseDown = (streakName: string, date: string) => {
+    longPressTriggeredRef.current = false
+    longPressTimeoutRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true
+      handleNoteAction(streakName, date)
+    }, 500)
+  }
+
+  const handleStreakCellMouseUp = () => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current)
+      longPressTimeoutRef.current = null
+    }
+  }
+
+  const handleStreakCellKeyDown = (
+    event: React.KeyboardEvent,
+    streakName: string,
+    date: string,
+  ) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (event.ctrlKey || event.metaKey) {
+        handleNoteAction(streakName, date)
+      } else {
+        toggleStreakRecord(streakName, date)
+      }
+    }
+  }
+
+  const handleStreakCellClick = (
+    event: React.MouseEvent,
+    streakName: string,
+    date: string,
+  ) => {
+    // Clear any existing long press timeout
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current)
+      longPressTimeoutRef.current = null
+    }
+
+    // Don't process click if long press was triggered
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false
+      return
+    }
+
+    if (event.ctrlKey || event.metaKey) {
+      // Ctrl+click or Cmd+click to add/focus note
+      event.preventDefault()
+      handleNoteAction(streakName, date)
+    } else {
+      // Regular click to toggle streak
+      toggleStreakRecord(streakName, date)
+    }
+  }
+
   const currentDate = dayjs().format('YYYY-MM-DD')
 
   if (loading)
@@ -307,13 +459,24 @@ export default function StreakGroupTable({
                   recordData?.note && recordData.note.trim().length > 0
                 const doneClass = done ? 'streak-cell-present' : ''
                 return (
-                  // biome-ignore lint/a11y/useKeyWithClickEvents: user requested no accessibility fixes
                   <td
                     key={streak.name}
                     className={`table-cell streak-cell ${rowBackgroundClass} ${doneClass}`}
-                    onClick={() =>
-                      toggleStreakRecord(streak.name, dateRow.date)
+                    onClick={(event) =>
+                      handleStreakCellClick(event, streak.name, dateRow.date)
                     }
+                    onKeyDown={(event) =>
+                      handleStreakCellKeyDown(event, streak.name, dateRow.date)
+                    }
+                    onMouseDown={() =>
+                      handleStreakCellMouseDown(streak.name, dateRow.date)
+                    }
+                    onMouseUp={handleStreakCellMouseUp}
+                    onMouseLeave={handleStreakCellMouseUp}
+                    onTouchStart={() =>
+                      handleStreakCellMouseDown(streak.name, dateRow.date)
+                    }
+                    onTouchEnd={handleStreakCellMouseUp}
                     style={{ cursor: 'pointer' }}
                   >
                     {done ? 'x' : ''}
@@ -322,21 +485,56 @@ export default function StreakGroupTable({
                 )
               })}
               <td className={`table-cell notes-cell ${rowBackgroundClass}`}>
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: contentEditable div requires interaction */}
-                <div
-                  contentEditable
-                  spellCheck={false}
-                  className="notes-input"
-                  suppressContentEditableWarning={true}
-                  onBlur={(e) => {
-                    console.log(
-                      'Notes updated for',
-                      dateRow.date,
-                      ':',
-                      e.currentTarget.textContent,
-                    )
-                  }}
-                />
+                <div className="notes-display">
+                  {allStreaks
+                    .filter((streak) => {
+                      const recordData = dateRow.records.get(streak.name)
+                      return (
+                        recordData?.note && recordData.note.trim().length > 0
+                      )
+                    })
+                    .map((streak) => {
+                      const recordData = dateRow.records.get(streak.name)
+                      const note = recordData?.note?.trim()
+
+                      return (
+                        <div
+                          key={`${streak.name}-${dateRow.date}`}
+                          className="streak-note"
+                        >
+                          <div className="streak-note-header">
+                            {streak.name}:
+                          </div>
+                          {/* biome-ignore lint/a11y/noStaticElementInteractions: contentEditable requires interactive behavior */}
+                          <span
+                            className="streak-note-content"
+                            data-streak-note={`${streak.name}-${dateRow.date}`}
+                            contentEditable="plaintext-only"
+                            suppressContentEditableWarning={true}
+                            spellCheck={false}
+                            onBlur={(e) => {
+                              const newNote = e.currentTarget.textContent || ''
+                              if (newNote !== note) {
+                                updateNoteContent(
+                                  streak.name,
+                                  dateRow.date,
+                                  newNote,
+                                )
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                e.currentTarget.blur()
+                              }
+                            }}
+                          >
+                            {note}
+                          </span>
+                        </div>
+                      )
+                    })}
+                </div>
               </td>
             </>
           )
