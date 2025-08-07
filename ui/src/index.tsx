@@ -2,9 +2,9 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import NotFound from './components/NotFound'
 import Group from './views/Group'
-import Groups from './views/Groups'
 import Home from './views/Home'
-import Todo from './views/Todo'
+import StreakGroups from './views/StreakGroups'
+import TodoGroups from './views/TodoGroups'
 import './index.css'
 
 const router = createBrowserRouter([
@@ -13,16 +13,20 @@ const router = createBrowserRouter([
     element: <Home />,
   },
   {
-    path: '/groups',
-    element: <Groups />,
+    path: '/streaks',
+    element: <StreakGroups />,
   },
   {
-    path: '/group/:groupId',
+    path: '/streaks/:groupId',
     element: <Group />,
   },
   {
     path: '/todo',
-    element: <Todo />,
+    element: <TodoGroups />,
+  },
+  {
+    path: '/todo/:groupId',
+    element: <TodoGroups />, // TODO: Create a TodoGroup component similar to Group
   },
   {
     path: '*',

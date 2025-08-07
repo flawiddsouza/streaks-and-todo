@@ -20,6 +20,7 @@ export interface ApiStreak {
 export interface ApiGroup {
   id: number
   name: string
+  type: 'streaks' | 'tasks'
   sortOrder: number
 }
 
@@ -50,8 +51,10 @@ export interface StreakGroup {
   streaks: StreakItem[]
 }
 
-export const fetchGroups = async (): Promise<ApiGroup[]> => {
-  const response = await fetch(`${API_BASE_URL}/groups`)
+export const fetchGroups = async (
+  type: 'streaks' | 'tasks',
+): Promise<ApiGroup[]> => {
+  const response = await fetch(`${API_BASE_URL}/groups?type=${type}`)
   if (!response.ok) throw new Error('Failed to fetch groups')
   const data: ApiGroupsResponse = await response.json()
   return data.groups
@@ -228,13 +231,16 @@ export const createStreak = async (name: string): Promise<ApiStreak> => {
   return data.streak
 }
 
-export const createGroup = async (name: string): Promise<ApiGroup> => {
+export const createGroup = async (
+  name: string,
+  type: 'streaks' | 'tasks',
+): Promise<ApiGroup> => {
   const response = await fetch(`${API_BASE_URL}/groups`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, type }),
   })
 
   if (!response.ok) {

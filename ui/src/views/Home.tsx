@@ -4,10 +4,10 @@ export default function Home() {
   return (
     <div className="page">
       <div>
-        <Link to={`/groups`}>Streak Groups</Link>
+        <Link to={`/streaks`}>Streak Groups</Link>
       </div>
       <div>
-        <Link to={`/todo`}>Todo</Link>
+        <Link to={`/todo`}>Todo Groups</Link>
       </div>
     </div>
   )

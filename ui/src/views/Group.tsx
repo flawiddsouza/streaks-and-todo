@@ -13,7 +13,6 @@ import {
 } from '../api'
 import ManageGroupModal from '../components/ManageGroupModal'
 import StreakGroupTable from '../components/StreakGroupTable'
-import './Group.css'
 
 export default function Group() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -181,8 +180,8 @@ export default function Group() {
       <nav className="page-nav">
         <div className="nav-left">
           {groupId && (
-            <Link to="/groups" className="back-link">
-              ← Back to Groups
+            <Link to="/streaks" className="back-link">
+              ← Back to Streak Groups
             </Link>
           )}
         </div>

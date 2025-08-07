@@ -90,12 +90,23 @@ const app = new Elysia()
       return error(500, { message: 'Internal server error' })
     }
   })
-  .get('/groups', async ({ error }) => {
+  .get('/groups', async ({ query, error }) => {
     try {
+      const { type } = query as { type: 'streaks' | 'tasks' }
+
+      if (!type || (type !== 'streaks' && type !== 'tasks')) {
+        return error(400, {
+          message:
+            'Type parameter is required and must be either "streaks" or "tasks"',
+        })
+      }
+
       const groups = await db
         .select()
         .from(groupsTable)
+        .where(eq(groupsTable.type, type))
         .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
+
       return { groups }
     } catch (err) {
       console.error('Error fetching groups:', err)
@@ -413,10 +424,17 @@ app.put(
 app
   .post('/groups', async ({ body, error }) => {
     try {
-      const { name } = body as { name: string }
+      const { name, type } = body as { name: string; type: 'streaks' | 'tasks' }
 
       if (!name || name.trim().length === 0) {
         return error(400, { message: 'Group name is required' })
+      }
+
+      if (!type || (type !== 'streaks' && type !== 'tasks')) {
+        return error(400, {
+          message:
+            'Group type is required and must be either "streaks" or "tasks"',
+        })
       }
 
       const existingGroup = await db
@@ -442,6 +460,7 @@ app
         .insert(groupsTable)
         .values({
           name: name.trim(),
+          type: type,
           sortOrder: newSortOrder,
         })
         .returning()
