@@ -102,66 +102,12 @@ const app = new Elysia()
       return error(500, { message: 'Internal server error' })
     }
   })
-  .post('/streaks/:streakId', async ({ params: { streakId }, body, error }) => {
-    try {
-      const streakIdNum = parseInt(streakId)
-      const { date, note } = body as { date: string; note?: string }
-
-      if (Number.isNaN(streakIdNum)) {
-        return error(400, { message: 'Invalid streak ID' })
-      }
-
-      if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
-      }
-
-      // Check if streak exists
-      const streak = await db
-        .select()
-        .from(streaksTable)
-        .where(eq(streaksTable.id, streakIdNum))
-        .limit(1)
-
-      if (streak.length === 0) {
-        return error(404, { message: 'Streak not found' })
-      }
-
-      // Check if log already exists for this date
-      const existingLog = await db
-        .select()
-        .from(streakLogTable)
-        .where(
-          and(
-            eq(streakLogTable.streakId, streakIdNum),
-            eq(streakLogTable.date, date),
-          ),
-        )
-        .limit(1)
-
-      if (existingLog.length > 0) {
-        return error(409, { message: 'Log already exists for this date' })
-      }
-
-      const [newLog] = await db
-        .insert(streakLogTable)
-        .values({
-          streakId: streakIdNum,
-          date,
-          note: note || null,
-        })
-        .returning()
-
-      return { log: newLog }
-    } catch (err) {
-      console.error('Error creating streak log:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
-  .delete(
-    '/streaks/:streakId/:date',
-    async ({ params: { streakId, date }, error }) => {
+  .post(
+    '/streaks/:streakId/toggle',
+    async ({ params: { streakId }, body, error }) => {
       try {
         const streakIdNum = parseInt(streakId)
+        const { date } = body as { date: string }
 
         if (Number.isNaN(streakIdNum)) {
           return error(400, { message: 'Invalid streak ID' })
@@ -171,29 +117,128 @@ const app = new Elysia()
           return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
-        const deletedLog = await db
-          .delete(streakLogTable)
+        const streak = await db
+          .select()
+          .from(streaksTable)
+          .where(eq(streaksTable.id, streakIdNum))
+          .limit(1)
+
+        if (streak.length === 0) {
+          return error(404, { message: 'Streak not found' })
+        }
+        const existingLog = await db
+          .select()
+          .from(streakLogTable)
           .where(
             and(
               eq(streakLogTable.streakId, streakIdNum),
               eq(streakLogTable.date, date),
             ),
           )
-          .returning()
+          .limit(1)
 
-        if (deletedLog.length === 0) {
-          return error(404, { message: 'Log not found' })
+        let log: typeof streakLogTable.$inferSelect
+        if (existingLog.length > 0) {
+          const [updatedLog] = await db
+            .update(streakLogTable)
+            .set({ done: !existingLog[0].done })
+            .where(
+              and(
+                eq(streakLogTable.streakId, streakIdNum),
+                eq(streakLogTable.date, date),
+              ),
+            )
+            .returning()
+          log = updatedLog
+        } else {
+          const [newLog] = await db
+            .insert(streakLogTable)
+            .values({
+              streakId: streakIdNum,
+              date,
+              done: true,
+            })
+            .returning()
+          log = newLog
         }
 
-        return { message: 'Log deleted successfully', log: deletedLog[0] }
+        return { log }
       } catch (err) {
-        console.error('Error deleting streak log:', err)
+        console.error('Error toggling streak log:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .put(
+    '/streaks/:streakId/:date/note',
+    async ({ params: { streakId, date }, body, error }) => {
+      try {
+        const streakIdNum = parseInt(streakId)
+        const { note } = body as { note: string }
+
+        if (Number.isNaN(streakIdNum)) {
+          return error(400, { message: 'Invalid streak ID' })
+        }
+
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        }
+
+        const streak = await db
+          .select()
+          .from(streaksTable)
+          .where(eq(streaksTable.id, streakIdNum))
+          .limit(1)
+
+        if (streak.length === 0) {
+          return error(404, { message: 'Streak not found' })
+        }
+
+        const existingLog = await db
+          .select()
+          .from(streakLogTable)
+          .where(
+            and(
+              eq(streakLogTable.streakId, streakIdNum),
+              eq(streakLogTable.date, date),
+            ),
+          )
+          .limit(1)
+
+        let log: typeof streakLogTable.$inferSelect
+        if (existingLog.length > 0) {
+          const [updatedLog] = await db
+            .update(streakLogTable)
+            .set({ note: note || null })
+            .where(
+              and(
+                eq(streakLogTable.streakId, streakIdNum),
+                eq(streakLogTable.date, date),
+              ),
+            )
+            .returning()
+          log = updatedLog
+        } else {
+          const [newLog] = await db
+            .insert(streakLogTable)
+            .values({
+              streakId: streakIdNum,
+              date,
+              note: note || null,
+              done: true,
+            })
+            .returning()
+          log = newLog
+        }
+
+        return { log }
+      } catch (err) {
+        console.error('Error updating streak log note:', err)
         return error(500, { message: 'Internal server error' })
       }
     },
   )
 
-// Additional endpoints for managing group streaks
 app
   .get('/streaks', async ({ error }) => {
     try {
@@ -212,7 +257,6 @@ app
         return error(400, { message: 'Streak name is required' })
       }
 
-      // Check if streak with same name already exists
       const existingStreak = await db
         .select()
         .from(streaksTable)
@@ -248,7 +292,6 @@ app
           return error(400, { message: 'Invalid group ID' })
         }
 
-        // Check if streak exists
         const streak = await db
           .select()
           .from(streaksTable)
@@ -259,7 +302,6 @@ app
           return error(404, { message: 'Streak not found' })
         }
 
-        // Check if group exists
         const group = await db
           .select()
           .from(groupsTable)
@@ -270,7 +312,6 @@ app
           return error(404, { message: 'Group not found' })
         }
 
-        // Check if streak is already in group
         const existing = await db
           .select()
           .from(streakGroupsTable)
@@ -349,7 +390,6 @@ app.put(
         return error(400, { message: 'Invalid group ID' })
       }
 
-      // Update each streak's sort order
       for (const streak of streaks) {
         await db
           .update(streakGroupsTable)
@@ -370,7 +410,6 @@ app.put(
   },
 )
 
-// Group CRUD operations
 app
   .post('/groups', async ({ body, error }) => {
     try {
@@ -380,7 +419,6 @@ app
         return error(400, { message: 'Group name is required' })
       }
 
-      // Check if group with same name already exists
       const existingGroup = await db
         .select()
         .from(groupsTable)
@@ -391,7 +429,6 @@ app
         return error(409, { message: 'Group with this name already exists' })
       }
 
-      // Get the highest sort order to append the new group at the end
       const lastGroup = await db
         .select({ maxSortOrder: groupsTable.sortOrder })
         .from(groupsTable)
@@ -423,12 +460,10 @@ app
         return error(400, { message: 'Invalid group ID' })
       }
 
-      // First remove all streak associations with this group
       await db
         .delete(streakGroupsTable)
         .where(eq(streakGroupsTable.groupId, groupIdNum))
 
-      // Then delete the group itself
       const deletedGroup = await db
         .delete(groupsTable)
         .where(eq(groupsTable.id, groupIdNum))
@@ -457,7 +492,6 @@ app
         return error(400, { message: 'Group name is required' })
       }
 
-      // Check if another group with the same name already exists (excluding current group)
       const existingGroup = await db
         .select()
         .from(groupsTable)
@@ -498,7 +532,6 @@ app
         return error(400, { message: 'Invalid groups data' })
       }
 
-      // Update each group's sort order
       for (const group of groups) {
         await db
           .update(groupsTable)

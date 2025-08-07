@@ -1,12 +1,7 @@
 import dayjs from 'dayjs'
 import { type Dispatch, type SetStateAction, useMemo } from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
-import {
-  createStreakLog,
-  deleteStreakLog,
-  type StreakGroup,
-  type StreakRecord,
-} from '../api'
+import { type StreakGroup, type StreakRecord, toggleStreakLog } from '../api'
 import './StreakGroupTable.css'
 
 interface StreakGroupTableProps {
@@ -60,7 +55,7 @@ const calculateRunningStreaks = (
   }
 
   allStreaks.forEach((streak) => {
-    const recordsMap = new Map(streak.records.map((r) => [r.date, r.present]))
+    const recordsMap = new Map(streak.records.map((r) => [r.date, r.done]))
     const todayIndex = allDatesInRange.length - 1
     const yesterdayIndex = allDatesInRange.length - 2
 
@@ -126,7 +121,12 @@ export default function StreakGroupTable({
     const recordsLookup = new Map(
       allStreaks.map((streak) => [
         streak.name,
-        new Map(streak.records.map((record) => [record.date, { present: record.present, note: record.note }])),
+        new Map(
+          streak.records.map((record) => [
+            record.date,
+            { done: record.done, note: record.note },
+          ]),
+        ),
       ]),
     )
 
@@ -136,7 +136,10 @@ export default function StreakGroupTable({
       records: new Map(
         allStreaks.map((streak) => [
           streak.name,
-          recordsLookup.get(streak.name)?.get(date) ?? { present: false, note: undefined },
+          recordsLookup.get(streak.name)?.get(date) ?? {
+            done: false,
+            note: undefined,
+          },
         ]),
       ),
     }))
@@ -170,19 +173,10 @@ export default function StreakGroupTable({
     if (!streakLocation || !dateRow) return
 
     const { groupIndex, streakIndex, streakId } = streakLocation
-    const currentPresent = dateRow.records.get(streakName)?.present ?? false
-    const newPresent = !currentPresent
 
     try {
-      if (newPresent) {
-        // Creating a new streak log record
-        await createStreakLog(streakId, date)
-      } else {
-        // Deleting existing streak log record
-        await deleteStreakLog(streakId, date)
-      }
+      const updatedLog = await toggleStreakLog(streakId, date)
 
-      // Update local state only after successful API call
       onStreakDataChange((prevData) => {
         const newData = [...prevData]
         const targetGroup = { ...newData[groupIndex] }
@@ -192,17 +186,24 @@ export default function StreakGroupTable({
 
         const recordIndex = updatedRecords.findIndex((r) => r.date === date)
 
-        if (newPresent) {
+        if (updatedLog.done) {
           if (recordIndex >= 0) {
             updatedRecords[recordIndex] = {
               ...updatedRecords[recordIndex],
-              present: true,
+              done: true,
             }
           } else {
-            updatedRecords.push({ date, present: true })
+            updatedRecords.push({ date, done: true })
           }
-        } else if (recordIndex >= 0) {
-          updatedRecords.splice(recordIndex, 1)
+        } else {
+          if (recordIndex >= 0) {
+            updatedRecords[recordIndex] = {
+              ...updatedRecords[recordIndex],
+              done: false,
+            }
+          } else {
+            updatedRecords.push({ date, done: false })
+          }
         }
 
         targetStreak.records = updatedRecords
@@ -282,7 +283,7 @@ export default function StreakGroupTable({
         itemContent={(_index, dateRow) => {
           const isCurrentDate = dateRow.date === currentDate
           const allStreaksAbsent = allStreaks.every(
-            (streak) => !dateRow.records.get(streak.name)?.present,
+            (streak) => !dateRow.records.get(streak.name)?.done,
           )
 
           const rowBackgroundClass = isCurrentDate
@@ -301,23 +302,22 @@ export default function StreakGroupTable({
               </td>
               {allStreaks.map((streak) => {
                 const recordData = dateRow.records.get(streak.name)
-                const present = recordData?.present ?? false
-                const hasNote = recordData?.note && recordData.note.trim().length > 0
-                const presentClass = present ? 'streak-cell-present' : ''
+                const done = recordData?.done ?? false
+                const hasNote =
+                  recordData?.note && recordData.note.trim().length > 0
+                const doneClass = done ? 'streak-cell-present' : ''
                 return (
                   // biome-ignore lint/a11y/useKeyWithClickEvents: user requested no accessibility fixes
                   <td
                     key={streak.name}
-                    className={`table-cell streak-cell ${rowBackgroundClass} ${presentClass}`}
+                    className={`table-cell streak-cell ${rowBackgroundClass} ${doneClass}`}
                     onClick={() =>
                       toggleStreakRecord(streak.name, dateRow.date)
                     }
                     style={{ cursor: 'pointer' }}
                   >
-                    {present ? 'x' : ''}
-                    {hasNote && (
-                      <div className="note-earmark" />
-                    )}
+                    {done ? 'x' : ''}
+                    {hasNote && <div className="note-earmark" />}
                   </td>
                 )
               })}
@@ -329,8 +329,12 @@ export default function StreakGroupTable({
                   className="notes-input"
                   suppressContentEditableWarning={true}
                   onBlur={(e) => {
-                    // Notes content handling would go here in the future
-                    console.log('Notes updated for', dateRow.date, ':', e.currentTarget.textContent)
+                    console.log(
+                      'Notes updated for',
+                      dateRow.date,
+                      ':',
+                      e.currentTarget.textContent,
+                    )
                   }}
                 />
               </td>

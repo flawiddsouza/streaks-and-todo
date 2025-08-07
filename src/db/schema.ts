@@ -21,6 +21,7 @@ export const streakLogTable = pgTable('streak_log', {
   streakId: integer('streak_id')
     .references(() => streaksTable.id)
     .notNull(),
+  done: boolean().notNull().default(true),
   note: text(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

@@ -4,6 +4,7 @@ export interface ApiStreakLog {
   id: number
   date: string
   streakId: number
+  done: boolean
   note: string | null
   createdAt: string
   updatedAt: string
@@ -33,7 +34,7 @@ export interface ApiGroupsResponse {
 
 export interface StreakRecord {
   date: string
-  present: boolean
+  done: boolean
   note?: string
 }
 
@@ -73,7 +74,7 @@ export const fetchGroupStreaks = async (
         name: streak.name,
         records: streak.logs.map((log) => ({
           date: log.date,
-          present: true,
+          done: log.done,
           note: log.note || undefined,
         })),
       })),
@@ -84,45 +85,58 @@ export const fetchGroupStreaks = async (
   }
 }
 
-export const createStreakLog = async (
+export const toggleStreakLog = async (
   streakId: number,
   date: string,
-  note?: string,
-): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/streaks/${streakId}`, {
+): Promise<ApiStreakLog> => {
+  const response = await fetch(`${API_BASE_URL}/streaks/${streakId}/toggle`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       date,
-      note: note || null,
     }),
   })
 
   if (!response.ok) {
     const errorData = await response.json()
-    console.error('Failed to create streak log:', errorData)
-    throw new Error('Failed to create streak log')
+    console.error('Failed to toggle streak log:', errorData)
+    throw new Error('Failed to toggle streak log')
   }
+
+  const data = await response.json()
+  return data.log
 }
 
-export const deleteStreakLog = async (
+export const updateStreakLogNote = async (
   streakId: number,
   date: string,
-): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/streaks/${streakId}/${date}`, {
-    method: 'DELETE',
-  })
+  note: string,
+): Promise<ApiStreakLog> => {
+  const response = await fetch(
+    `${API_BASE_URL}/streaks/${streakId}/${date}/note`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        note,
+      }),
+    },
+  )
 
   if (!response.ok) {
     const errorData = await response.json()
-    console.error('Failed to delete streak log:', errorData)
-    throw new Error('Failed to delete streak log')
+    console.error('Failed to update streak log note:', errorData)
+    throw new Error('Failed to update streak log note')
   }
+
+  const data = await response.json()
+  return data.log
 }
 
-// Group management functions
 export const fetchAllStreaks = async (): Promise<ApiStreak[]> => {
   const response = await fetch(`${API_BASE_URL}/streaks`)
   if (!response.ok) throw new Error('Failed to fetch all streaks')
@@ -214,7 +228,6 @@ export const createStreak = async (name: string): Promise<ApiStreak> => {
   return data.streak
 }
 
-// Group CRUD operations
 export const createGroup = async (name: string): Promise<ApiGroup> => {
   const response = await fetch(`${API_BASE_URL}/groups`, {
     method: 'POST',

@@ -105,11 +105,9 @@ export default function Groups() {
     const [movedGroup] = newGroups.splice(fromIndex, 1)
     newGroups.splice(toIndex, 0, movedGroup)
 
-    // Update local state immediately for responsive UI
     setGroups(newGroups)
 
     try {
-      // Update sort order on server
       const groupUpdates = newGroups.map((group, index) => ({
         groupId: group.id,
         sortOrder: index,
@@ -118,7 +116,6 @@ export default function Groups() {
     } catch (err) {
       console.error('Error updating group order:', err)
       setError('Failed to update group order')
-      // Revert on error
       const groupsList = await fetchGroups()
       setGroups(groupsList)
     }
