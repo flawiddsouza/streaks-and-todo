@@ -58,6 +58,7 @@ export const tasksTable = pgTable('tasks', {
     .references(() => groupsTable.id)
     .notNull(),
   task: text().notNull(),
+  defaultExtraInfo: text('default_extra_info'),
   streakId: integer('streak_id').references(() => streaksTable.id),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -70,7 +71,19 @@ export const taskLogTable = pgTable('task_log', {
     .references(() => tasksTable.id)
     .notNull(),
   extraInfo: text('extra_info'),
+  done: boolean().notNull(),
   sortOrder: integer('sort_order').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+export const groupNotesTable = pgTable('group_notes', {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  date: date().notNull(),
+  groupId: integer('group_id')
+    .references(() => groupsTable.id)
+    .notNull(),
+  note: text().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
