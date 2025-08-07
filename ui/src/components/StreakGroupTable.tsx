@@ -429,7 +429,7 @@ export default function StreakGroupTable({
                 {streakTotals.get(streak.name) || 0}
               </td>
             ))}
-            <td className="footer-cell">-</td>
+            <td className="footer-cell"></td>
           </tr>
         )}
         itemContent={(_index, dateRow) => {
