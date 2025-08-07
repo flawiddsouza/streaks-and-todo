@@ -1,0 +1,177 @@
+.header-cell-todo,
+.todo-cell,
+.header-cell-done,
+.done-cell {
+  width: 25rem;
+  max-width: 25rem;
+  text-align: left;
+}
+
+.header-cell-count,
+.count-cell {
+  width: 60px;
+}
+
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.todo-text {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+  width: 100%;
+  color: inherit;
+  flex: 1;
+  font: inherit;
+  white-space: break-spaces;
+}
+
+.todo-text:hover {
+  background-color: #f8f9fa;
+}
+
+.todo-table-container tbody > tr:last-child > th,
+.todo-table-container tbody > tr:last-child > td {
+  border-bottom: 1px solid grey;
+}
+
+.done-cell,
+.todo-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.todo-combobox-input {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.todo-combobox-menu {
+  position: absolute;
+  z-index: 10;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-top: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  min-width: 180px;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+  border-top: none;
+}
+
+.todo-combobox-menu:empty {
+  border: none;
+  box-shadow: none;
+}
+
+.todo-combobox-menu li {
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+}
+
+.todo-combobox-menu li.highlighted,
+.todo-combobox-menu li:hover {
+  background: #f8f9fa;
+}
+
+.todo-combobox-menu .task-extra-info {
+  color: #888;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.task-action-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  margin-left: 4px;
+  transition:
+    opacity 0.2s ease,
+    background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.todo-item:hover .task-action-btn {
+  opacity: 1;
+}
+
+.copy-task-btn {
+  color: #28a745;
+}
+
+.copy-task-btn:hover {
+  background-color: #28a745;
+  color: white;
+}
+
+.edit-task-btn {
+  color: #007bff;
+}
+
+.edit-task-btn:hover {
+  background-color: #007bff;
+  color: white;
+}
+
+.delete-task-btn {
+  color: #dc3545;
+}
+
+.delete-task-btn:hover {
+  background-color: #dc3545;
+  color: white;
+}
+
+.task-edit-input {
+  border: none;
+  border-radius: 2px;
+  padding: 0;
+  width: 100%;
+  font: inherit;
+  color: #333;
+  outline: none;
+}
+
+.notes-editable {
+  outline: none;
+  padding: 2px 5px;
+}

@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { db } from './db'
 import {
+  groupNotesTable,
   groupsTable,
   streakGroupsTable,
   streakLogTable,
@@ -87,6 +88,63 @@ const app = new Elysia()
       }
     } catch (err) {
       console.error('Error fetching streak group data:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .get('/task-groups/:groupId', async ({ params: { groupId }, error }) => {
+    try {
+      const groupIdNum = parseInt(groupId)
+
+      if (Number.isNaN(groupIdNum)) {
+        return error(400, { message: 'Invalid group ID' })
+      }
+
+      const group = await db
+        .select()
+        .from(groupsTable)
+        .where(eq(groupsTable.id, groupIdNum))
+        .limit(1)
+
+      if (group.length === 0) {
+        return error(404, { message: 'Group not found' })
+      }
+
+      // Check if this is actually a task group
+      if (group[0].type !== 'tasks') {
+        return error(400, { message: 'Group is not a task group' })
+      }
+
+      const tasks = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.groupId, groupIdNum))
+
+      const taskIds = tasks.map((task) => task.id)
+      const taskLogs =
+        taskIds.length > 0
+          ? await db
+              .select()
+              .from(taskLogTable)
+              .where(inArray(taskLogTable.taskId, taskIds))
+              .orderBy(taskLogTable.date, taskLogTable.sortOrder)
+          : []
+
+      // Fetch group notes for this group
+      const groupNotes = await db
+        .select()
+        .from(groupNotesTable)
+        .where(eq(groupNotesTable.groupId, groupIdNum))
+
+      return {
+        group: group[0],
+        tasks: tasks.map((task) => ({
+          ...task,
+          logs: taskLogs.filter((log) => log.taskId === task.id),
+        })),
+        notes: groupNotes.map((note) => ({ date: note.date, note: note.note })),
+      }
+    } catch (err) {
+      console.error('Error fetching task group data:', err)
       return error(500, { message: 'Internal server error' })
     }
   })
@@ -564,6 +622,356 @@ app
       return error(500, { message: 'Internal server error' })
     }
   })
+  .post('/tasks/:taskId/log', async ({ params: { taskId }, body, error }) => {
+    try {
+      const taskIdNum = parseInt(taskId)
+      const { date, done } = body as { date: string; done: boolean }
+
+      if (Number.isNaN(taskIdNum)) {
+        return error(400, { message: 'Invalid task ID' })
+      }
+      if (!date || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) {
+        return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+      }
+      if (typeof done !== 'boolean') {
+        return error(400, { message: 'Missing or invalid done parameter' })
+      }
+
+      const task = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskIdNum))
+        .limit(1)
+
+      if (task.length === 0) {
+        return error(404, { message: 'Task not found' })
+      }
+
+      const existingLog = await db
+        .select()
+        .from(taskLogTable)
+        .where(
+          and(eq(taskLogTable.taskId, taskIdNum), eq(taskLogTable.date, date)),
+        )
+        .limit(1)
+
+      let log: typeof taskLogTable.$inferSelect
+      if (existingLog.length > 0) {
+        // Set done status
+        const [updatedLog] = await db
+          .update(taskLogTable)
+          .set({ done })
+          .where(
+            and(
+              eq(taskLogTable.taskId, taskIdNum),
+              eq(taskLogTable.date, date),
+            ),
+          )
+          .returning()
+        log = updatedLog
+      } else {
+        // Get the highest sortOrder for this date and done status (across all tasks)
+        const lastSortOrder = await db
+          .select({ maxSortOrder: taskLogTable.sortOrder })
+          .from(taskLogTable)
+          .where(and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)))
+          .orderBy(desc(taskLogTable.sortOrder))
+          .limit(1)
+
+        const newSortOrder =
+          lastSortOrder.length > 0
+            ? (lastSortOrder[0].maxSortOrder || 0) + 1
+            : 1
+
+        const [newLog] = await db
+          .insert(taskLogTable)
+          .values({
+            taskId: taskIdNum,
+            date,
+            done,
+            sortOrder: newSortOrder,
+          })
+          .returning()
+        log = newLog
+      }
+
+      return { log }
+    } catch (err) {
+      console.error('Error setting task log:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+  .put(
+    '/tasks/:taskId/:date/note',
+    async ({ params: { taskId, date }, body, error }) => {
+      try {
+        const taskIdNum = parseInt(taskId)
+        const { extraInfo } = body as { extraInfo: string }
+
+        if (Number.isNaN(taskIdNum)) {
+          return error(400, { message: 'Invalid task ID' })
+        }
+
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        }
+
+        const task = await db
+          .select()
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskIdNum))
+          .limit(1)
+
+        if (task.length === 0) {
+          return error(404, { message: 'Task not found' })
+        }
+
+        const existingLog = await db
+          .select()
+          .from(taskLogTable)
+          .where(
+            and(
+              eq(taskLogTable.taskId, taskIdNum),
+              eq(taskLogTable.date, date),
+            ),
+          )
+          .limit(1)
+
+        let log: typeof taskLogTable.$inferSelect
+        if (existingLog.length > 0) {
+          const [updatedLog] = await db
+            .update(taskLogTable)
+            .set({ extraInfo: extraInfo || null })
+            .where(
+              and(
+                eq(taskLogTable.taskId, taskIdNum),
+                eq(taskLogTable.date, date),
+              ),
+            )
+            .returning()
+          log = updatedLog
+        } else {
+          // Get the highest sortOrder for this task and date
+          const lastSortOrder = await db
+            .select({ maxSortOrder: taskLogTable.sortOrder })
+            .from(taskLogTable)
+            .where(
+              and(
+                eq(taskLogTable.taskId, taskIdNum),
+                eq(taskLogTable.date, date),
+              ),
+            )
+            .orderBy(desc(taskLogTable.sortOrder))
+            .limit(1)
+
+          const newSortOrder =
+            lastSortOrder.length > 0
+              ? (lastSortOrder[0].maxSortOrder || 0) + 1
+              : 1
+
+          const [newLog] = await db
+            .insert(taskLogTable)
+            .values({
+              taskId: taskIdNum,
+              date,
+              extraInfo: extraInfo || null,
+              done: true,
+              sortOrder: newSortOrder,
+            })
+            .returning()
+          log = newLog
+        }
+
+        return { log }
+      } catch (err) {
+        console.error('Error updating task log note:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .put(
+    '/groups/:groupId/:date/note',
+    async ({ params: { groupId, date }, body, error }) => {
+      try {
+        const groupIdNum = parseInt(groupId)
+        const { note } = body as { note: string }
+
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
+        if (!date || !/\d{4}-\d{2}-\d{2}/.test(date)) {
+          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        }
+        if (typeof note !== 'string') {
+          return error(400, { message: 'Note is required' })
+        }
+
+        // Check if group exists
+        const group = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, groupIdNum))
+          .limit(1)
+        if (group.length === 0) {
+          return error(404, { message: 'Group not found' })
+        }
+
+        // Check if note exists
+        const existing = await db
+          .select()
+          .from(groupNotesTable)
+          .where(
+            and(
+              eq(groupNotesTable.groupId, groupIdNum),
+              eq(groupNotesTable.date, date),
+            ),
+          )
+          .limit(1)
+
+        let result: (typeof existing)[0] | undefined
+        if (existing.length > 0) {
+          // Update
+          const [updated] = await db
+            .update(groupNotesTable)
+            .set({ note })
+            .where(
+              and(
+                eq(groupNotesTable.groupId, groupIdNum),
+                eq(groupNotesTable.date, date),
+              ),
+            )
+            .returning()
+          result = updated
+        } else {
+          // Insert
+          const [inserted] = await db
+            .insert(groupNotesTable)
+            .values({ groupId: groupIdNum, date, note })
+            .returning()
+          result = inserted
+        }
+        return { note: result }
+      } catch (err) {
+        console.error('Error updating group note:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .post(
+    '/groups/:groupId/tasks',
+    async ({ params: { groupId }, body, error }) => {
+      try {
+        const groupIdNum = parseInt(groupId)
+        const { task, defaultExtraInfo } = body as {
+          task: string
+          defaultExtraInfo?: string
+        }
+
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
+        if (!task || typeof task !== 'string' || task.trim().length === 0) {
+          return error(400, { message: 'Task name is required' })
+        }
+
+        // Check if group exists
+        const group = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, groupIdNum))
+          .limit(1)
+        if (group.length === 0) {
+          return error(404, { message: 'Group not found' })
+        }
+
+        // Check for duplicate task in group
+        const existing = await db
+          .select()
+          .from(tasksTable)
+          .where(
+            and(
+              eq(tasksTable.groupId, groupIdNum),
+              eq(tasksTable.task, task.trim()),
+            ),
+          )
+          .limit(1)
+        if (existing.length > 0) {
+          return error(409, { message: 'Task already exists in this group' })
+        }
+
+        const [newTask] = await db
+          .insert(tasksTable)
+          .values({
+            groupId: groupIdNum,
+            task: task.trim(),
+            defaultExtraInfo: defaultExtraInfo || null,
+          })
+          .returning()
+
+        return { task: newTask }
+      } catch (err) {
+        console.error('Error creating task:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .delete(
+    '/tasks/:taskId/:date/log',
+    async ({ params: { taskId, date }, error }) => {
+      try {
+        const taskIdNum = parseInt(taskId)
+
+        if (Number.isNaN(taskIdNum)) {
+          return error(400, { message: 'Invalid task ID' })
+        }
+
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        }
+
+        const task = await db
+          .select()
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskIdNum))
+          .limit(1)
+
+        if (task.length === 0) {
+          return error(404, { message: 'Task not found' })
+        }
+
+        const deletedLog = await db
+          .delete(taskLogTable)
+          .where(
+            and(
+              eq(taskLogTable.taskId, taskIdNum),
+              eq(taskLogTable.date, date),
+            ),
+          )
+          .returning()
+
+        if (deletedLog.length === 0) {
+          return error(404, { message: 'Task log not found' })
+        }
+
+        // Check if there are any remaining logs for this task
+        const remainingLogs = await db
+          .select()
+          .from(taskLogTable)
+          .where(eq(taskLogTable.taskId, taskIdNum))
+          .limit(1)
+
+        // If no logs remain, delete the task itself
+        if (remainingLogs.length === 0) {
+          await db.delete(tasksTable).where(eq(tasksTable.id, taskIdNum))
+        }
+
+        return { message: 'Task log deleted successfully', log: deletedLog[0] }
+      } catch (err) {
+        console.error('Error deleting task log:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
 
 app.listen(9008)
 

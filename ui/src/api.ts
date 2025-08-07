@@ -10,11 +10,30 @@ export interface ApiStreakLog {
   updatedAt: string
 }
 
+export interface ApiTaskLog {
+  id: number
+  date: string
+  taskId: number
+  extraInfo: string | null
+  done: boolean
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ApiStreak {
   id: number
   name: string
   logs: ApiStreakLog[]
   sortOrder: number
+}
+
+export interface ApiTask {
+  id: number
+  groupId: number
+  task: string
+  defaultExtraInfo: string | null
+  logs: ApiTaskLog[]
 }
 
 export interface ApiGroup {
@@ -29,6 +48,12 @@ export interface ApiStreakGroupResponse {
   streaks: ApiStreak[]
 }
 
+export interface ApiTaskGroupResponse {
+  group: ApiGroup
+  tasks: ApiTask[]
+  notes?: { date: string; note: string }[] // add notes array
+}
+
 export interface ApiGroupsResponse {
   groups: ApiGroup[]
 }
@@ -39,16 +64,37 @@ export interface StreakRecord {
   note?: string
 }
 
+export interface TaskRecord {
+  date: string
+  done: boolean
+  extraInfo?: string
+  sortOrder: number
+}
+
 export interface StreakItem {
   id: number
   name: string
   records: StreakRecord[]
 }
 
+export interface TaskItem {
+  id: number
+  task: string
+  defaultExtraInfo?: string | null
+  records: TaskRecord[]
+}
+
 export interface StreakGroup {
   id: number
   name: string
   streaks: StreakItem[]
+}
+
+export interface TaskGroup {
+  id: number
+  name: string
+  tasks: TaskItem[]
+  notes?: { date: string; note: string }[] // add notes array
 }
 
 export const fetchGroups = async (
@@ -88,6 +134,36 @@ export const fetchGroupStreaks = async (
   }
 }
 
+export const fetchGroupTasks = async (
+  groupId: number,
+): Promise<TaskGroup | null> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/task-groups/${groupId}`)
+    if (!response.ok)
+      throw new Error(`Failed to fetch tasks for group ${groupId}`)
+    const data: ApiTaskGroupResponse = await response.json()
+
+    return {
+      id: data.group.id,
+      name: data.group.name,
+      tasks: data.tasks.map((task) => ({
+        id: task.id,
+        task: task.task,
+        records: task.logs.map((log) => ({
+          date: log.date,
+          done: log.done,
+          extraInfo: log.extraInfo || undefined,
+          sortOrder: log.sortOrder,
+        })),
+      })),
+      notes: data.notes || [], // pass notes array
+    }
+  } catch (err) {
+    console.error(`Error fetching tasks for group ${groupId}:`, err)
+    return null
+  }
+}
+
 export const toggleStreakLog = async (
   streakId: number,
   date: string,
@@ -106,6 +182,32 @@ export const toggleStreakLog = async (
     const errorData = await response.json()
     console.error('Failed to toggle streak log:', errorData)
     throw new Error('Failed to toggle streak log')
+  }
+
+  const data = await response.json()
+  return data.log
+}
+
+export const setTaskLog = async (
+  taskId: number,
+  date: string,
+  done: boolean,
+): Promise<ApiTaskLog> => {
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/log`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      date,
+      done,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to set task log:', errorData)
+    throw new Error('Failed to set task log')
   }
 
   const data = await response.json()
@@ -138,6 +240,46 @@ export const updateStreakLogNote = async (
 
   const data = await response.json()
   return data.log
+}
+
+export const updateTaskLogNote = async (
+  taskId: number,
+  date: string,
+  extraInfo: string,
+): Promise<ApiTaskLog> => {
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/${date}/note`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      extraInfo,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to update task log note:', errorData)
+    throw new Error('Failed to update task log note')
+  }
+
+  const data = await response.json()
+  return data.log
+}
+
+export const deleteTaskLog = async (
+  taskId: number,
+  date: string,
+): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/${date}/log`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to delete task log:', errorData)
+    throw new Error('Failed to delete task log')
+  }
 }
 
 export const fetchAllStreaks = async (): Promise<ApiStreak[]> => {
@@ -305,4 +447,46 @@ export const updateGroupOrder = async (
     console.error('Failed to update group order:', errorData)
     throw new Error('Failed to update group order')
   }
+}
+
+export const updateGroupNote = async (
+  groupId: number,
+  date: string,
+  note: string,
+): Promise<{
+  note: { id: number; date: string; groupId: number; note: string }
+}> => {
+  const response = await fetch(
+    `${API_BASE_URL}/groups/${groupId}/${date}/note`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note }),
+    },
+  )
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to update group note:', errorData)
+    throw new Error('Failed to update group note')
+  }
+  return await response.json()
+}
+
+export const createTaskForGroup = async (
+  groupId: number,
+  task: string,
+  defaultExtraInfo?: string,
+): Promise<ApiTask> => {
+  const response = await fetch(`${API_BASE_URL}/groups/${groupId}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task, defaultExtraInfo }),
+  })
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to create task:', errorData)
+    throw new Error(errorData.message || 'Failed to create task')
+  }
+  const data = await response.json()
+  return data.task
 }
