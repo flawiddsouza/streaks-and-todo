@@ -587,31 +587,24 @@ export default function TodoGroupTable({
         onTaskDataChange((prevData) =>
           updateTaskData(prevData, groupIndex, taskIndex, (records) => {
             const updatedRecords = [...records]
-            const recordIndex = updatedRecords.findIndex(
-              (r) => r.date === date && r.sortOrder === updatedLog.sortOrder,
-            )
+            const recordIndex = updatedRecords.findIndex((r) => r.date === date)
 
-            if (updatedLog.done) {
-              if (recordIndex >= 0) {
-                updatedRecords[recordIndex] = {
-                  ...updatedRecords[recordIndex],
-                  done: updatedLog.done,
-                  extraInfo: updatedLog.extraInfo || undefined,
-                  sortOrder: updatedLog.sortOrder,
-                }
-              } else {
-                updatedRecords.push({
-                  date: updatedLog.date,
-                  done: updatedLog.done,
-                  extraInfo: updatedLog.extraInfo || undefined,
-                  sortOrder: updatedLog.sortOrder,
-                })
-              }
-            } else if (recordIndex >= 0) {
+            if (recordIndex >= 0) {
+              // Update existing record
               updatedRecords[recordIndex] = {
                 ...updatedRecords[recordIndex],
                 done: updatedLog.done,
+                extraInfo: updatedLog.extraInfo || undefined,
+                sortOrder: updatedLog.sortOrder,
               }
+            } else {
+              // Add new record
+              updatedRecords.push({
+                date: updatedLog.date,
+                done: updatedLog.done,
+                extraInfo: updatedLog.extraInfo || undefined,
+                sortOrder: updatedLog.sortOrder,
+              })
             }
 
             return updatedRecords

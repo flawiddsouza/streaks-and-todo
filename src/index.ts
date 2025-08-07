@@ -657,10 +657,23 @@ app
 
       let log: typeof taskLogTable.$inferSelect
       if (existingLog.length > 0) {
-        // Set done status
+        // Get the highest sortOrder for this date and done status (across all tasks)
+        const lastSortOrder = await db
+          .select({ maxSortOrder: taskLogTable.sortOrder })
+          .from(taskLogTable)
+          .where(and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)))
+          .orderBy(desc(taskLogTable.sortOrder))
+          .limit(1)
+
+        const newSortOrder =
+          lastSortOrder.length > 0
+            ? (lastSortOrder[0].maxSortOrder || 0) + 1
+            : 1
+
+        // Set done status and update sortOrder to place at end of new list
         const [updatedLog] = await db
           .update(taskLogTable)
-          .set({ done })
+          .set({ done, sortOrder: newSortOrder })
           .where(
             and(
               eq(taskLogTable.taskId, taskIdNum),
