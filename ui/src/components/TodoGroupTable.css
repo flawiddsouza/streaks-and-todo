@@ -24,6 +24,40 @@
   position: relative;
 }
 
+.todo-item.dragging {
+  opacity: 0.6;
+  background-color: #e3f2fd;
+  z-index: 1000;
+}
+
+.todo-item.drag-over {
+  background-color: #f3e5f5;
+}
+
+.todo-item.drag-over::after {
+  content: "↓ Drop here";
+  position: absolute;
+  top: -18px;
+  right: 0;
+  background: #9c27b0;
+  color: white;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: normal;
+  white-space: nowrap;
+  z-index: 1001;
+}
+
+.todo-item:hover {
+  cursor: grab;
+  background-color: #f8f9fa;
+}
+
+.todo-item:active {
+  cursor: grabbing;
+}
+
 .todo-text {
   background: none;
   border: none;
@@ -41,6 +75,13 @@
 
 .todo-text:hover {
   background-color: #f8f9fa;
+}
+
+/* Enhanced drag feedback */
+.todo-item.dragging .todo-text {
+  pointer-events: none;
+  color: #2196f3;
+  font-weight: 500;
 }
 
 .todo-table-container tbody > tr:last-child > th,

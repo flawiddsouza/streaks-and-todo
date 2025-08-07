@@ -1,10 +1,17 @@
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine'
+import {
+  draggable,
+  dropTargetForElements,
+} from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
 import dayjs from 'dayjs'
 import Downshift from 'downshift'
 import {
   type Dispatch,
   type SetStateAction,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
@@ -16,6 +23,7 @@ import {
   type TaskGroup,
   updateGroupNote,
   updateTaskLogNote,
+  updateTaskLogsOrder,
 } from '../api'
 import './TodoGroupTable.css'
 
@@ -165,6 +173,11 @@ interface TaskItemProps {
   onEditChange: (value: string) => void
   onEditSave: () => void
   onEditCancel: () => void
+  onReorder: (
+    date: string,
+    taskLogs: { taskId: number; sortOrder: number }[],
+  ) => void
+  allTasksInCell: TaskItem[]
 }
 
 function TaskItemComponent({
@@ -179,7 +192,73 @@ function TaskItemComponent({
   onEditChange,
   onEditSave,
   onEditCancel,
+  onReorder,
+  allTasksInCell,
 }: TaskItemProps) {
+  const dragRef = useRef<HTMLDivElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [isDraggedOver, setIsDraggedOver] = useState(false)
+
+  useEffect(() => {
+    const element = dragRef.current
+    if (!element) return
+
+    return combine(
+      draggable({
+        element,
+        getInitialData: () => ({
+          type: 'task-item',
+          taskId: taskLog.taskId,
+          sortOrder: taskLog.sortOrder,
+          date,
+        }),
+        onDragStart: () => setIsDragging(true),
+        onDrop: () => setIsDragging(false),
+      }),
+      dropTargetForElements({
+        element,
+        canDrop: ({ source }) => {
+          return (
+            source.data.type === 'task-item' &&
+            source.data.date === date &&
+            source.data.taskId !== taskLog.taskId
+          )
+        },
+        onDragEnter: () => setIsDraggedOver(true),
+        onDragLeave: () => setIsDraggedOver(false),
+        onDrop: ({ source }) => {
+          setIsDraggedOver(false)
+          const sourceTaskId = source.data.taskId as number
+
+          if (sourceTaskId === taskLog.taskId) return
+
+          // Create new sort order array
+          const updatedTasks = [...allTasksInCell]
+          const sourceIndex = updatedTasks.findIndex(
+            (t) => t.taskId === sourceTaskId,
+          )
+          const targetIndex = updatedTasks.findIndex(
+            (t) => t.taskId === taskLog.taskId,
+          )
+
+          if (sourceIndex === -1 || targetIndex === -1) return
+
+          // Remove source item and insert at target position
+          const [movedItem] = updatedTasks.splice(sourceIndex, 1)
+          updatedTasks.splice(targetIndex, 0, movedItem)
+
+          // Update sort orders
+          const reorderedTasks = updatedTasks.map((task, index) => ({
+            taskId: task.taskId,
+            sortOrder: index + 1,
+          }))
+
+          onReorder(date, reorderedTasks)
+        },
+      }),
+    )
+  }, [taskLog, date, onReorder, allTasksInCell])
+
   if (isEditing) {
     return (
       <div className="todo-item">
@@ -205,7 +284,11 @@ function TaskItemComponent({
   }
 
   return (
-    <div className="todo-item">
+    <div
+      ref={dragRef}
+      className={`todo-item ${isDragging ? 'dragging' : ''} ${isDraggedOver ? 'drag-over' : ''}`}
+      style={{ cursor: 'grab' }}
+    >
       <button
         type="button"
         className="todo-text"
@@ -271,6 +354,10 @@ interface TaskColumnProps {
   onEditChange: (value: string) => void
   onEditSave: () => void
   onEditCancel: () => void
+  onReorder: (
+    date: string,
+    taskLogs: { taskId: number; sortOrder: number }[],
+  ) => void
 }
 
 function TaskColumn({
@@ -290,6 +377,7 @@ function TaskColumn({
   onEditChange,
   onEditSave,
   onEditCancel,
+  onReorder,
 }: TaskColumnProps) {
   return (
     <div className="todo-list">
@@ -310,6 +398,8 @@ function TaskColumn({
             onEditChange={onEditChange}
             onEditSave={onEditSave}
             onEditCancel={onEditCancel}
+            onReorder={onReorder}
+            allTasksInCell={tasks}
           />
         )
       })}
@@ -774,6 +864,25 @@ export default function TodoGroupTable({
     }
   }, [])
 
+  const handleTaskReorder = useCallback(
+    async (date: string, taskLogs: { taskId: number; sortOrder: number }[]) => {
+      try {
+        await updateTaskLogsOrder(date, taskLogs)
+
+        // Refresh the data to reflect the new order
+        if (groupId) {
+          const updatedGroup = await fetchGroupTasks(groupId)
+          if (updatedGroup) {
+            onTaskDataChange([updatedGroup])
+          }
+        }
+      } catch (err) {
+        console.error('Error reordering tasks:', err)
+      }
+    },
+    [groupId, onTaskDataChange],
+  )
+
   if (loading) {
     return (
       <div className="virtuoso-table-container loading-container">
@@ -880,6 +989,7 @@ export default function TodoGroupTable({
                         })),
                     )
                   }
+                  onReorder={handleTaskReorder}
                 />
               </td>
               <td className={`table-cell todo-cell ${rowBackgroundClass}`}>
@@ -927,6 +1037,7 @@ export default function TodoGroupTable({
                         })),
                     )
                   }
+                  onReorder={handleTaskReorder}
                 />
               </td>
               <td className={`table-cell notes-cell ${rowBackgroundClass}`}>

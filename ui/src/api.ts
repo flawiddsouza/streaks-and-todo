@@ -490,3 +490,25 @@ export const createTaskForGroup = async (
   const data = await response.json()
   return data.task
 }
+
+export const updateTaskLogsOrder = async (
+  date: string,
+  taskLogs: { taskId: number; sortOrder: number }[],
+): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/tasks/reorder`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      date,
+      taskLogs,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    console.error('Failed to update task logs order:', errorData)
+    throw new Error('Failed to update task logs order')
+  }
+}

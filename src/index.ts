@@ -972,6 +972,40 @@ app
       }
     },
   )
+  .put('/tasks/reorder', async ({ body, error }) => {
+    try {
+      const { date, taskLogs } = body as {
+        date: string
+        taskLogs: { taskId: number; sortOrder: number }[]
+      }
+
+      if (!date || !taskLogs || !Array.isArray(taskLogs)) {
+        return error(400, { message: 'Invalid request body' })
+      }
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+      }
+
+      // Update sort order for each task log
+      for (const { taskId: logTaskId, sortOrder } of taskLogs) {
+        await db
+          .update(taskLogTable)
+          .set({ sortOrder })
+          .where(
+            and(
+              eq(taskLogTable.taskId, logTaskId),
+              eq(taskLogTable.date, date),
+            ),
+          )
+      }
+
+      return { message: 'Task logs reordered successfully' }
+    } catch (err) {
+      console.error('Error reordering task logs:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
 
 app.listen(9008)
 
