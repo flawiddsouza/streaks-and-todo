@@ -377,14 +377,16 @@ interface TaskColumnProps {
   tasks: TaskItem[]
   date: string
   availableTasks: FlatTask[]
-  inputValue: string
   placeholder: string
-  onInputChange: (value: string) => void
-  onTaskSelect: (task: FlatTask | null) => void
+  onTaskSelect: (
+    task: FlatTask | null,
+    inputValue: string,
+    reset: () => void,
+  ) => void
+  onEnter: (inputValue: string, reset: () => void) => void
   onToggle: (taskId: number, date: string) => void
   onDelete: (taskId: number, date: string) => void
   onCopy: (taskLog: TaskItem) => void
-  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
   onEdit: (taskId: number, date: string, currentExtraInfo: string) => void
   editingTask: { taskId: number; date: string; extraInfo: string } | null
   onEditChange: (value: string) => void
@@ -406,14 +408,12 @@ function TaskColumn({
   tasks,
   date,
   availableTasks,
-  inputValue,
   placeholder,
-  onInputChange,
   onTaskSelect,
+  onEnter,
   onToggle,
   onDelete,
   onCopy,
-  onKeyDown,
   onEdit,
   editingTask,
   onEditChange,
@@ -423,6 +423,7 @@ function TaskColumn({
   isDone,
   onPastePinned,
 }: TaskColumnProps) {
+  const [inputValue, setInputValue] = useState('')
   return (
     <div className="todo-list">
       {tasks.map((taskLog) => {
@@ -448,10 +449,12 @@ function TaskColumn({
         )
       })}
 
-      <Downshift
+      <Downshift<FlatTask>
         inputValue={inputValue}
-        onInputValueChange={onInputChange}
-        onSelect={onTaskSelect}
+        onInputValueChange={(v) => setInputValue(v)}
+        onSelect={(selected) =>
+          onTaskSelect(selected, inputValue, () => setInputValue(''))
+        }
         selectedItem={null}
         itemToString={(item) => (item ? item.task : '')}
       >
@@ -477,7 +480,9 @@ function TaskColumn({
                     ) {
                       return
                     }
-                    onKeyDown(e)
+                    if (e.key === 'Enter') {
+                      onEnter(inputValue, () => setInputValue(''))
+                    }
                   },
                   spellCheck: false,
                 })}
@@ -536,12 +541,7 @@ export default function TodoGroupTable({
   onTaskDataChange,
   groupId,
 }: TodoGroupTableProps) {
-  const [todoInputValues, setTodoInputValues] = useState<
-    Record<string, string>
-  >({})
-  const [doneInputValues, setDoneInputValues] = useState<
-    Record<string, string>
-  >({})
+  // Input state is now managed locally inside TaskColumn to avoid caret jumps
   const [editingTask, setEditingTask] = useState<{
     taskId: number
     date: string
@@ -1063,28 +1063,32 @@ export default function TodoGroupTable({
                   tasks={dateRow.doneTasks}
                   date={dateRow.date}
                   availableTasks={availableTasks}
-                  inputValue={doneInputValues[dateRow.date] || ''}
                   placeholder=""
-                  onInputChange={(val) =>
-                    setDoneInputValues((v) => ({ ...v, [dateRow.date]: val }))
-                  }
                   isDone={true}
                   onPastePinned={(date, done, avail) =>
                     handlePastePinned(date, done, avail)
                   }
-                  onTaskSelect={(selectedTask) =>
+                  onTaskSelect={(selectedTask, inputValue, reset) => {
                     handleTaskSelect(
                       selectedTask,
-                      doneInputValues[dateRow.date] || '',
+                      inputValue,
                       dateRow.date,
                       true,
-                      (val) =>
-                        setDoneInputValues((v) => ({
-                          ...v,
-                          [dateRow.date]: val,
-                        })),
+                      (_val) => {},
                     )
-                  }
+                    reset()
+                  }}
+                  onEnter={(inputValue, reset) => {
+                    handleKeyDown(
+                      { key: 'Enter' } as React.KeyboardEvent<HTMLInputElement>,
+                      inputValue,
+                      dateRow.date,
+                      true,
+                      availableTasks,
+                      (_val) => {},
+                    )
+                    reset()
+                  }}
                   onToggle={toggleTaskRecord}
                   onDelete={deleteTaskRecord}
                   onCopy={copyTaskToClipboard}
@@ -1093,20 +1097,6 @@ export default function TodoGroupTable({
                   onEditChange={handleEditChange}
                   onEditSave={handleEditSave}
                   onEditCancel={handleEditCancel}
-                  onKeyDown={(e) =>
-                    handleKeyDown(
-                      e,
-                      doneInputValues[dateRow.date] || '',
-                      dateRow.date,
-                      true,
-                      availableTasks,
-                      (val) =>
-                        setDoneInputValues((v) => ({
-                          ...v,
-                          [dateRow.date]: val,
-                        })),
-                    )
-                  }
                   onReorder={handleTaskReorder}
                 />
               </td>
@@ -1115,28 +1105,32 @@ export default function TodoGroupTable({
                   tasks={dateRow.todoTasks}
                   date={dateRow.date}
                   availableTasks={availableTasks}
-                  inputValue={todoInputValues[dateRow.date] || ''}
                   placeholder=""
-                  onInputChange={(val) =>
-                    setTodoInputValues((v) => ({ ...v, [dateRow.date]: val }))
-                  }
                   isDone={false}
                   onPastePinned={(date, done, avail) =>
                     handlePastePinned(date, done, avail)
                   }
-                  onTaskSelect={(selectedTask) =>
+                  onTaskSelect={(selectedTask, inputValue, reset) => {
                     handleTaskSelect(
                       selectedTask,
-                      todoInputValues[dateRow.date] || '',
+                      inputValue,
                       dateRow.date,
                       false,
-                      (val) =>
-                        setTodoInputValues((v) => ({
-                          ...v,
-                          [dateRow.date]: val,
-                        })),
+                      (_val) => {},
                     )
-                  }
+                    reset()
+                  }}
+                  onEnter={(inputValue, reset) => {
+                    handleKeyDown(
+                      { key: 'Enter' } as React.KeyboardEvent<HTMLInputElement>,
+                      inputValue,
+                      dateRow.date,
+                      false,
+                      availableTasks,
+                      (_val) => {},
+                    )
+                    reset()
+                  }}
                   onToggle={toggleTaskRecord}
                   onDelete={deleteTaskRecord}
                   onCopy={copyTaskToClipboard}
@@ -1145,20 +1139,6 @@ export default function TodoGroupTable({
                   onEditChange={handleEditChange}
                   onEditSave={handleEditSave}
                   onEditCancel={handleEditCancel}
-                  onKeyDown={(e) =>
-                    handleKeyDown(
-                      e,
-                      todoInputValues[dateRow.date] || '',
-                      dateRow.date,
-                      false,
-                      availableTasks,
-                      (val) =>
-                        setTodoInputValues((v) => ({
-                          ...v,
-                          [dateRow.date]: val,
-                        })),
-                    )
-                  }
                   onReorder={handleTaskReorder}
                 />
               </td>
