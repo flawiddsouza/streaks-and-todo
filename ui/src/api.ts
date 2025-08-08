@@ -149,6 +149,7 @@ export const fetchGroupTasks = async (
       tasks: data.tasks.map((task) => ({
         id: task.id,
         task: task.task,
+        defaultExtraInfo: task.defaultExtraInfo,
         records: task.logs.map((log) => ({
           date: log.date,
           done: log.done,
