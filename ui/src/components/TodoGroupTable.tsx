@@ -488,24 +488,13 @@ function TaskColumn({
                         highlightedIndex === index ? 'highlighted' : ''
                       }
                     >
-                      {(() => {
-                        const { text, usedSubstitution } =
-                          formatTaskWithExtraInfo(
-                            item.task,
-                            item.defaultExtraInfo || undefined,
-                          )
-                        return (
-                          <>
-                            {text}
-                            {!usedSubstitution && item.defaultExtraInfo && (
-                              <span className="task-extra-info">
-                                {' '}
-                                ({item.defaultExtraInfo})
-                              </span>
-                            )}
-                          </>
-                        )
-                      })()}
+                      {item.task}
+                      {item.defaultExtraInfo && (
+                        <span className="task-extra-info">
+                          {' '}
+                          ({item.defaultExtraInfo})
+                        </span>
+                      )}
                     </li>
                   ))}
             </ul>
