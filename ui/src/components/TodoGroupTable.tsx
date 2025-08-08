@@ -408,6 +408,7 @@ function TaskColumn({
         inputValue={inputValue}
         onInputValueChange={onInputChange}
         onSelect={onTaskSelect}
+        selectedItem={null}
         itemToString={(item) => (item ? item.task : '')}
       >
         {({
@@ -422,7 +423,13 @@ function TaskColumn({
               {...getInputProps({
                 placeholder,
                 className: 'todo-combobox-input',
-                onKeyDown,
+                onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                  // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
+                  if (e.key === 'Enter' && isOpen && highlightedIndex != null) {
+                    return
+                  }
+                  onKeyDown(e)
+                },
                 spellCheck: false,
               })}
             />
