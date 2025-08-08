@@ -55,6 +55,27 @@ interface FlatTask {
   }>
 }
 
+// Helper: render a task label with optional substitution.
+// If the task name contains the placeholder and extraInfo is provided, substitute it; otherwise leave as-is.
+// Returns the formatted text and a flag indicating if substitution occurred.
+const formatTaskWithExtraInfo = (
+  taskName: string,
+  extraInfo?: string,
+): { text: string; usedSubstitution: boolean } => {
+  const TOKENS = ['$x']
+  if (!extraInfo) return { text: taskName, usedSubstitution: false }
+
+  let text = taskName
+  let used = false
+  for (const t of TOKENS) {
+    if (text.includes(t)) {
+      text = text.split(t).join(extraInfo)
+      used = true
+    }
+  }
+  return { text, usedSubstitution: used }
+}
+
 const generateDateRange = (dates: string[]): string[] => {
   const today = dayjs()
 
@@ -294,10 +315,25 @@ function TaskItemComponent({
         className="todo-text"
         onClick={() => onToggle(taskLog.taskId, date)}
       >
-        {taskLog.task}
-        {taskLog.extraInfo && taskLog.extraInfo.trim().length > 0 && (
-          <span className="task-extra-info"> ({taskLog.extraInfo})</span>
-        )}
+        {(() => {
+          const { text, usedSubstitution } = formatTaskWithExtraInfo(
+            taskLog.task,
+            taskLog.extraInfo,
+          )
+          return (
+            <>
+              {text}
+              {!usedSubstitution &&
+                taskLog.extraInfo &&
+                taskLog.extraInfo.trim().length > 0 && (
+                  <span className="task-extra-info">
+                    {' '}
+                    ({taskLog.extraInfo})
+                  </span>
+                )}
+            </>
+          )
+        })()}
       </button>
       <button
         type="button"
@@ -452,13 +488,24 @@ function TaskColumn({
                         highlightedIndex === index ? 'highlighted' : ''
                       }
                     >
-                      {item.task}
-                      {item.defaultExtraInfo && (
-                        <span className="task-extra-info">
-                          {' '}
-                          ({item.defaultExtraInfo})
-                        </span>
-                      )}
+                      {(() => {
+                        const { text, usedSubstitution } =
+                          formatTaskWithExtraInfo(
+                            item.task,
+                            item.defaultExtraInfo || undefined,
+                          )
+                        return (
+                          <>
+                            {text}
+                            {!usedSubstitution && item.defaultExtraInfo && (
+                              <span className="task-extra-info">
+                                {' '}
+                                ({item.defaultExtraInfo})
+                              </span>
+                            )}
+                          </>
+                        )
+                      })()}
                     </li>
                   ))}
             </ul>
@@ -842,20 +889,16 @@ export default function TodoGroupTable({
   }, [])
 
   const copyTaskToClipboard = useCallback(async (taskLog: TaskItem) => {
+    let textToCopy = taskLog.task
+    if (taskLog.extraInfo && taskLog.extraInfo.trim().length > 0) {
+      textToCopy += ` (${taskLog.extraInfo})`
+    }
     try {
-      let textToCopy = taskLog.task
-      if (taskLog.extraInfo && taskLog.extraInfo.trim().length > 0) {
-        textToCopy += ` (${taskLog.extraInfo})`
-      }
       await navigator.clipboard.writeText(textToCopy)
     } catch (err) {
       console.error('Failed to copy task to clipboard:', err)
       // Fallback for browsers that don't support clipboard API
       const textArea = document.createElement('textarea')
-      let textToCopy = taskLog.task
-      if (taskLog.extraInfo && taskLog.extraInfo.trim().length > 0) {
-        textToCopy += ` (${taskLog.extraInfo})`
-      }
       textArea.value = textToCopy
       document.body.appendChild(textArea)
       textArea.select()
