@@ -13,6 +13,61 @@ import {
   tasksTable,
 } from './db/schema'
 
+// When a task is marked done and it's linked to a streak, ensure the streak has a done log for the same date.
+async function ensureStreakDoneForDate(streakId: number, date: string) {
+  const existing = await db
+    .select()
+    .from(streakLogTable)
+    .where(
+      and(eq(streakLogTable.streakId, streakId), eq(streakLogTable.date, date)),
+    )
+    .limit(1)
+
+  if (existing.length > 0) {
+    if (!existing[0].done) {
+      await db
+        .update(streakLogTable)
+        .set({ done: true })
+        .where(
+          and(
+            eq(streakLogTable.streakId, streakId),
+            eq(streakLogTable.date, date),
+          ),
+        )
+    }
+  } else {
+    await db
+      .insert(streakLogTable)
+      .values({ streakId, date, done: true })
+      .returning()
+  }
+}
+
+// When a task is moved to undone and it's linked to a streak, clear the streak for that date.
+async function ensureStreakUndoneForDate(streakId: number, date: string) {
+  const existing = await db
+    .select()
+    .from(streakLogTable)
+    .where(
+      and(eq(streakLogTable.streakId, streakId), eq(streakLogTable.date, date)),
+    )
+    .limit(1)
+
+  if (existing.length > 0) {
+    if (existing[0].done) {
+      await db
+        .update(streakLogTable)
+        .set({ done: false })
+        .where(
+          and(
+            eq(streakLogTable.streakId, streakId),
+            eq(streakLogTable.date, date),
+          ),
+        )
+    }
+  }
+}
+
 const app = new Elysia()
   .use(cors())
   .get('/', () => 'Hello Elysia')
@@ -749,6 +804,15 @@ app
         log = newLog
       }
 
+      // Mirror to streak if linked
+      if (task[0].streakId != null) {
+        if (done === true) {
+          await ensureStreakDoneForDate(task[0].streakId, date)
+        } else {
+          await ensureStreakUndoneForDate(task[0].streakId, date)
+        }
+      }
+
       return { log }
     } catch (err) {
       console.error('Error setting task log:', err)
@@ -834,6 +898,11 @@ app
             })
             .returning()
           log = newLog
+
+          // Newly creating a done log for a task that's linked to a streak → mirror into streak_log
+          if (task[0].streakId != null) {
+            await ensureStreakDoneForDate(task[0].streakId, date)
+          }
         }
 
         return { log }
@@ -1005,6 +1074,11 @@ app
 
         if (deletedLog.length === 0) {
           return error(404, { message: 'Task log not found' })
+        }
+
+        // If the deleted log was done and this task is linked to a streak, mark the streak as undone for that date
+        if (deletedLog[0]?.done === true && task[0]?.streakId != null) {
+          await ensureStreakUndoneForDate(task[0].streakId, date)
         }
 
         // Check if there are any remaining logs for this task
