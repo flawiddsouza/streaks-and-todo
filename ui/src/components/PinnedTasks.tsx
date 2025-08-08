@@ -51,7 +51,18 @@ export default function PinnedTasks({
     }))
   }, [groupData])
 
-  const pinGroups: PinGroup[] = groupData?.pins || []
+  // Only show pin tasks that still exist in availableTasks
+  const availableTaskIds = useMemo(
+    () => new Set(availableTasks.map((t) => t.id)),
+    [availableTasks],
+  )
+  const pinGroups: PinGroup[] = useMemo(() => {
+    if (!groupData?.pins) return []
+    return groupData.pins.map((pg) => ({
+      ...pg,
+      tasks: pg.tasks.filter((t) => availableTaskIds.has(t.taskId)),
+    }))
+  }, [groupData, availableTaskIds])
 
   const refresh = useCallback(async () => {
     const updated = await fetchGroupTasks(parentGroupId)

@@ -1014,8 +1014,12 @@ app
           .where(eq(taskLogTable.taskId, taskIdNum))
           .limit(1)
 
-        // If no logs remain, delete the task itself
+        // If no logs remain, delete the task itself (and its pins)
         if (remainingLogs.length === 0) {
+          // Remove from group_pins first to avoid FK error
+          await db
+            .delete(groupPinsTable)
+            .where(eq(groupPinsTable.taskId, taskIdNum))
           await db.delete(tasksTable).where(eq(tasksTable.id, taskIdNum))
         }
 
