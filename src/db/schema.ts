@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   date,
   integer,
@@ -9,7 +10,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core'
 
-export const groupTypeEnum = pgEnum('group_type', ['streaks', 'tasks'])
+export const groupTypeEnum = pgEnum('group_type', ['streaks', 'tasks', 'pins'])
 
 export const streaksTable = pgTable('streaks', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
@@ -32,6 +33,7 @@ export const streakLogTable = pgTable('streak_log', {
 
 export const groupsTable = pgTable('groups', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  group_id: integer('group_id').references((): AnyPgColumn => groupsTable.id),
   name: varchar({ length: 255 }).notNull(),
   type: groupTypeEnum().notNull(),
   sortOrder: integer('sort_order').notNull(),
@@ -84,6 +86,19 @@ export const groupNotesTable = pgTable('group_notes', {
     .references(() => groupsTable.id)
     .notNull(),
   note: text().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+export const groupPinsTable = pgTable('group_pins', {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  groupId: integer('group_id')
+    .references(() => groupsTable.id)
+    .notNull(),
+  taskId: integer('task_id')
+    .references(() => tasksTable.id)
+    .notNull(),
+  sortOrder: integer('sort_order').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

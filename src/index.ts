@@ -4,6 +4,7 @@ import { Elysia } from 'elysia'
 import { db } from './db'
 import {
   groupNotesTable,
+  groupPinsTable,
   groupsTable,
   streakGroupsTable,
   streakLogTable,
@@ -135,6 +136,45 @@ const app = new Elysia()
         .from(groupNotesTable)
         .where(eq(groupNotesTable.groupId, groupIdNum))
 
+      // Fetch any pin subgroups under this task group
+      const pinGroups = await db
+        .select()
+        .from(groupsTable)
+        .where(
+          and(
+            eq(groupsTable.group_id, groupIdNum),
+            eq(groupsTable.type, 'pins'),
+          ),
+        )
+        .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
+
+      const pinGroupIds = pinGroups.map((g) => g.id)
+      const pinItems =
+        pinGroupIds.length > 0
+          ? await db
+              .select({
+                pin: groupPinsTable,
+                task: tasksTable,
+              })
+              .from(groupPinsTable)
+              .innerJoin(tasksTable, eq(groupPinsTable.taskId, tasksTable.id))
+              .where(inArray(groupPinsTable.groupId, pinGroupIds))
+          : []
+
+      const pins = pinGroups.map((pg) => ({
+        id: pg.id,
+        name: pg.name,
+        sortOrder: pg.sortOrder,
+        tasks: pinItems
+          .filter((pi) => pi.pin.groupId === pg.id)
+          .sort((a, b) => a.pin.sortOrder - b.pin.sortOrder)
+          .map((pi) => ({
+            taskId: pi.task.id,
+            task: pi.task.task,
+            sortOrder: pi.pin.sortOrder,
+          })),
+      }))
+
       return {
         group: group[0],
         tasks: tasks.map((task) => ({
@@ -142,6 +182,7 @@ const app = new Elysia()
           logs: taskLogs.filter((log) => log.taskId === task.id),
         })),
         notes: groupNotes.map((note) => ({ date: note.date, note: note.note })),
+        pins,
       }
     } catch (err) {
       console.error('Error fetching task group data:', err)
@@ -1019,6 +1060,332 @@ app
       return error(500, { message: 'Internal server error' })
     }
   })
+  // Create a pin subgroup under a task group
+  .post(
+    '/groups/:groupId/pin-groups',
+    async ({ params: { groupId }, body, error }) => {
+      try {
+        const groupIdNum = parseInt(groupId)
+        const { name } = body as { name: string }
+
+        if (Number.isNaN(groupIdNum))
+          return error(400, { message: 'Invalid group ID' })
+        if (!name || name.trim().length === 0)
+          return error(400, { message: 'Pin group name is required' })
+
+        // parent must be a task group
+        const parent = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, groupIdNum))
+          .limit(1)
+        if (parent.length === 0)
+          return error(404, { message: 'Parent group not found' })
+        if (parent[0].type !== 'tasks')
+          return error(400, {
+            message: 'Pin groups can only be created under task groups',
+          })
+
+        // next sort order among pin groups under this parent
+        const lastPinGroup = await db
+          .select({ maxSortOrder: groupsTable.sortOrder })
+          .from(groupsTable)
+          .where(
+            and(
+              eq(groupsTable.group_id, groupIdNum),
+              eq(groupsTable.type, 'pins'),
+            ),
+          )
+          .orderBy(desc(groupsTable.sortOrder))
+          .limit(1)
+        const newSortOrder =
+          lastPinGroup.length > 0 ? (lastPinGroup[0].maxSortOrder || 0) + 1 : 0
+
+        const [pinGroup] = await db
+          .insert(groupsTable)
+          .values({
+            name: name.trim(),
+            type: 'pins' as const,
+            group_id: groupIdNum,
+            sortOrder: newSortOrder,
+          })
+          .returning()
+
+        return { pinGroup }
+      } catch (err) {
+        console.error('Error creating pin group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  // Add a task reference into a pin group
+  .post(
+    '/pin-groups/:pinGroupId/tasks',
+    async ({ params: { pinGroupId }, body, error }) => {
+      try {
+        const pinGroupIdNum = parseInt(pinGroupId)
+        const { taskId, sortOrder } = body as {
+          taskId: number
+          sortOrder?: number
+        }
+
+        if (Number.isNaN(pinGroupIdNum))
+          return error(400, { message: 'Invalid pin group ID' })
+        if (!taskId || Number.isNaN(Number(taskId)))
+          return error(400, { message: 'Invalid task ID' })
+
+        const pinGroup = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, pinGroupIdNum))
+          .limit(1)
+        if (pinGroup.length === 0)
+          return error(404, { message: 'Pin group not found' })
+        if (pinGroup[0].type !== 'pins')
+          return error(400, { message: 'Not a pin group' })
+
+        const task = await db
+          .select()
+          .from(tasksTable)
+          .where(eq(tasksTable.id, taskId))
+          .limit(1)
+        if (task.length === 0) return error(404, { message: 'Task not found' })
+
+        const existing = await db
+          .select()
+          .from(groupPinsTable)
+          .where(
+            and(
+              eq(groupPinsTable.groupId, pinGroupIdNum),
+              eq(groupPinsTable.taskId, taskId),
+            ),
+          )
+          .limit(1)
+        if (existing.length > 0)
+          return error(409, { message: 'Task already pinned in this group' })
+
+        let finalSortOrder = sortOrder
+        if (finalSortOrder == null) {
+          const last = await db
+            .select({ maxSortOrder: groupPinsTable.sortOrder })
+            .from(groupPinsTable)
+            .where(eq(groupPinsTable.groupId, pinGroupIdNum))
+            .orderBy(desc(groupPinsTable.sortOrder))
+            .limit(1)
+          finalSortOrder = last.length > 0 ? (last[0].maxSortOrder || 0) + 1 : 0
+        }
+
+        const [pin] = await db
+          .insert(groupPinsTable)
+          .values({ groupId: pinGroupIdNum, taskId, sortOrder: finalSortOrder })
+          .returning()
+        return { pin }
+      } catch (err) {
+        console.error('Error adding task to pin group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  // Remove a task reference from a pin group
+  .delete(
+    '/pin-groups/:pinGroupId/tasks/:taskId',
+    async ({ params: { pinGroupId, taskId }, error }) => {
+      try {
+        const pinGroupIdNum = parseInt(pinGroupId)
+        const taskIdNum = parseInt(taskId)
+        if (Number.isNaN(pinGroupIdNum) || Number.isNaN(taskIdNum))
+          return error(400, { message: 'Invalid pin group or task ID' })
+
+        const deleted = await db
+          .delete(groupPinsTable)
+          .where(
+            and(
+              eq(groupPinsTable.groupId, pinGroupIdNum),
+              eq(groupPinsTable.taskId, taskIdNum),
+            ),
+          )
+          .returning()
+        if (deleted.length === 0)
+          return error(404, { message: 'Pin not found' })
+        return { message: 'Task unpinned' }
+      } catch (err) {
+        console.error('Error removing task from pin group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  // Reorder tasks within a pin group
+  .put(
+    '/pin-groups/:pinGroupId/tasks/reorder',
+    async ({ params: { pinGroupId }, body, error }) => {
+      try {
+        const pinGroupIdNum = parseInt(pinGroupId)
+        const { items } = body as {
+          items: { taskId: number; sortOrder: number }[]
+        }
+        if (Number.isNaN(pinGroupIdNum))
+          return error(400, { message: 'Invalid pin group ID' })
+        if (!Array.isArray(items))
+          return error(400, { message: 'Invalid items' })
+
+        for (const it of items) {
+          await db
+            .update(groupPinsTable)
+            .set({ sortOrder: it.sortOrder })
+            .where(
+              and(
+                eq(groupPinsTable.groupId, pinGroupIdNum),
+                eq(groupPinsTable.taskId, it.taskId),
+              ),
+            )
+        }
+        return { message: 'Reordered' }
+      } catch (err) {
+        console.error('Error reordering pin group tasks:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+
+  // Rename a pin group
+  .put(
+    '/pin-groups/:pinGroupId',
+    async ({ params: { pinGroupId }, body, error }) => {
+      try {
+        const pinGroupIdNum = parseInt(pinGroupId)
+        const { name } = body as { name: string }
+
+        if (Number.isNaN(pinGroupIdNum))
+          return error(400, { message: 'Invalid pin group ID' })
+        if (!name || name.trim().length === 0)
+          return error(400, { message: 'Name is required' })
+
+        // Ensure target is a pin group
+        const existing = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, pinGroupIdNum))
+          .limit(1)
+        if (existing.length === 0)
+          return error(404, { message: 'Pin group not found' })
+        if (existing[0].type !== 'pins')
+          return error(400, { message: 'Group is not a pin group' })
+
+        // Optional: prevent duplicate names within the same parent
+        if (existing[0].group_id != null) {
+          const dup = await db
+            .select()
+            .from(groupsTable)
+            .where(
+              and(
+                eq(groupsTable.group_id, existing[0].group_id),
+                eq(groupsTable.type, 'pins'),
+                eq(groupsTable.name, name.trim()),
+              ),
+            )
+            .limit(1)
+          if (dup.length > 0 && dup[0].id !== pinGroupIdNum) {
+            return error(409, {
+              message: 'A pin group with this name already exists',
+            })
+          }
+        }
+
+        const [updated] = await db
+          .update(groupsTable)
+          .set({ name: name.trim() })
+          .where(eq(groupsTable.id, pinGroupIdNum))
+          .returning()
+
+        return { group: updated }
+      } catch (err) {
+        console.error('Error renaming pin group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+
+  // Delete a pin group (and its pins)
+  .delete(
+    '/pin-groups/:pinGroupId',
+    async ({ params: { pinGroupId }, error }) => {
+      try {
+        const pinGroupIdNum = parseInt(pinGroupId)
+        if (Number.isNaN(pinGroupIdNum))
+          return error(400, { message: 'Invalid pin group ID' })
+
+        // Ensure it's a pin group
+        const existing = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, pinGroupIdNum))
+          .limit(1)
+        if (existing.length === 0)
+          return error(404, { message: 'Pin group not found' })
+        if (existing[0].type !== 'pins')
+          return error(400, { message: 'Group is not a pin group' })
+
+        await db
+          .delete(groupPinsTable)
+          .where(eq(groupPinsTable.groupId, pinGroupIdNum))
+        const [deleted] = await db
+          .delete(groupsTable)
+          .where(eq(groupsTable.id, pinGroupIdNum))
+          .returning()
+
+        return { message: 'Pin group deleted', group: deleted }
+      } catch (err) {
+        console.error('Error deleting pin group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+
+  // Reorder pin groups under a parent task group
+  .put(
+    '/groups/:groupId/pin-groups/reorder',
+    async ({ params: { groupId }, body, error }) => {
+      try {
+        const groupIdNum = parseInt(groupId)
+        const { items } = body as {
+          items: { pinGroupId: number; sortOrder: number }[]
+        }
+
+        if (Number.isNaN(groupIdNum))
+          return error(400, { message: 'Invalid parent group ID' })
+        if (!Array.isArray(items))
+          return error(400, { message: 'Invalid items' })
+
+        // ensure parent exists and is a task group
+        const parent = await db
+          .select()
+          .from(groupsTable)
+          .where(eq(groupsTable.id, groupIdNum))
+          .limit(1)
+        if (parent.length === 0)
+          return error(404, { message: 'Parent group not found' })
+        if (parent[0].type !== 'tasks')
+          return error(400, { message: 'Parent must be a task group' })
+
+        for (const it of items) {
+          await db
+            .update(groupsTable)
+            .set({ sortOrder: it.sortOrder })
+            .where(
+              and(
+                eq(groupsTable.id, it.pinGroupId),
+                eq(groupsTable.group_id, groupIdNum),
+                eq(groupsTable.type, 'pins'),
+              ),
+            )
+        }
+        return { message: 'Pin groups reordered' }
+      } catch (err) {
+        console.error('Error reordering pin groups:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
 
   // Update a task's core fields (name, defaultExtraInfo)
   .put('/tasks/:taskId', async ({ params: { taskId }, body, error }) => {

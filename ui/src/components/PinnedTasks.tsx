@@ -1,0 +1,423 @@
+import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine'
+import {
+  draggable,
+  dropTargetForElements,
+} from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
+import Downshift from 'downshift'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  addTaskToPinGroup,
+  createPinGroup,
+  deletePinGroup,
+  fetchGroupTasks,
+  removeTaskFromPinGroup,
+  renamePinGroup,
+  reorderPinGroups,
+  reorderPinGroupTasks,
+  type TaskGroup,
+} from '../api'
+import './PinnedTasks.css'
+
+type PinTask = { taskId: number; task: string; sortOrder: number }
+type PinGroup = {
+  id: number
+  name: string
+  sortOrder: number
+  tasks: PinTask[]
+}
+
+interface Props {
+  parentGroupId: number
+  groupData: TaskGroup | null
+  onRefresh: (updated: TaskGroup) => void
+}
+
+export default function PinnedTasks({
+  parentGroupId,
+  groupData,
+  onRefresh,
+}: Props) {
+  const [creatingName, setCreatingName] = useState('')
+  const [addingTaskInput, setAddingTaskInput] = useState<
+    Record<number, string>
+  >({})
+
+  const availableTasks = useMemo(() => {
+    if (!groupData) return []
+    return groupData.tasks.map((t) => ({
+      id: t.id,
+      task: t.task,
+      defaultExtraInfo: t.defaultExtraInfo || null,
+    }))
+  }, [groupData])
+
+  const pinGroups: PinGroup[] = groupData?.pins || []
+
+  const refresh = useCallback(async () => {
+    const updated = await fetchGroupTasks(parentGroupId)
+    if (updated) onRefresh(updated)
+  }, [parentGroupId, onRefresh])
+
+  const handleCreatePinGroup = useCallback(async () => {
+    if (!creatingName.trim()) return
+    await createPinGroup(parentGroupId, creatingName.trim())
+    setCreatingName('')
+    await refresh()
+  }, [creatingName, parentGroupId, refresh])
+
+  const handleRenamePinGroup = useCallback(
+    async (pinGroupId: number, name: string) => {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      await renamePinGroup(pinGroupId, trimmed)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const handleDeletePinGroup = useCallback(
+    async (pinGroupId: number) => {
+      if (!confirm('Delete this pin group?')) return
+      await deletePinGroup(pinGroupId)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const handleAddTask = useCallback(
+    async (pinGroupId: number, inputValue: string) => {
+      const trimmed = inputValue.trim()
+      if (!trimmed) return
+      const existing = availableTasks.find(
+        (t) => t.task.toLowerCase() === trimmed.toLowerCase(),
+      )
+      if (!existing) {
+        alert('Create task first in the group above, then pin it here.')
+        return
+      }
+      await addTaskToPinGroup(pinGroupId, existing.id)
+      setAddingTaskInput((s) => ({ ...s, [pinGroupId]: '' }))
+      await refresh()
+    },
+    [availableTasks, refresh],
+  )
+
+  const handleRemoveTask = useCallback(
+    async (pinGroupId: number, taskId: number) => {
+      await removeTaskFromPinGroup(pinGroupId, taskId)
+      await refresh()
+    },
+    [refresh],
+  )
+
+  const DraggablePinItem = ({
+    pinGroupId,
+    item,
+    items,
+  }: {
+    pinGroupId: number
+    item: PinTask
+    items: PinTask[]
+  }) => {
+    const ref = useRef<HTMLDivElement>(null)
+    const [dragging, setDragging] = useState(false)
+    const [over, setOver] = useState(false)
+
+    useEffect(() => {
+      const el = ref.current
+      if (!el) return
+      return combine(
+        draggable({
+          element: el,
+          getInitialData: () => ({
+            type: 'pin-item',
+            taskId: item.taskId,
+            sortOrder: item.sortOrder,
+            pinGroupId,
+          }),
+          onDragStart: () => setDragging(true),
+          onDrop: () => setDragging(false),
+        }),
+        dropTargetForElements({
+          element: el,
+          canDrop: ({ source }) =>
+            source.data.type === 'pin-item' &&
+            source.data.pinGroupId === pinGroupId &&
+            source.data.taskId !== item.taskId,
+          onDragEnter: () => setOver(true),
+          onDragLeave: () => setOver(false),
+          onDrop: async ({ source }) => {
+            setOver(false)
+            const sourceTaskId = source.data.taskId as number
+            if (sourceTaskId === item.taskId) return
+            const arr = [...items]
+            const sIdx = arr.findIndex((t) => t.taskId === sourceTaskId)
+            const tIdx = arr.findIndex((t) => t.taskId === item.taskId)
+            if (sIdx === -1 || tIdx === -1) return
+            const [moved] = arr.splice(sIdx, 1)
+            arr.splice(tIdx, 0, moved)
+            const payload = arr.map((t, i) => ({
+              taskId: t.taskId,
+              sortOrder: i,
+            }))
+            await reorderPinGroupTasks(pinGroupId, payload)
+            await refresh()
+          },
+        }),
+      )
+    }, [item, pinGroupId, items])
+
+    // Find the defaultExtraInfo for this task
+    const taskObj = availableTasks.find((t) => t.id === item.taskId)
+    return (
+      <div
+        ref={ref}
+        className={`pin-task ${dragging ? 'dragging' : ''} ${over ? 'drag-over' : ''}`}
+      >
+        <span className="pin-task-text">
+          {item.task}
+          {taskObj?.defaultExtraInfo && taskObj.defaultExtraInfo.trim() !== ''
+            ? ` (${taskObj.defaultExtraInfo})`
+            : ''}
+        </span>
+        <button
+          className="pin-remove"
+          type="button"
+          onClick={() => handleRemoveTask(pinGroupId, item.taskId)}
+        >
+          ×
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="pinned-section">
+      <h3 className="pinned-title">Pinned</h3>
+
+      {/* Pin group list with drag-reorder */}
+      {pinGroups.map((pg, idx) => (
+        <PinGroupRow
+          key={pg.id}
+          group={pg}
+          index={idx}
+          onRename={handleRenamePinGroup}
+          onDelete={handleDeletePinGroup}
+          onReorder={async (from, to) => {
+            if (from === to) return
+            const arr = [...pinGroups]
+            const [moved] = arr.splice(from, 1)
+            arr.splice(to, 0, moved)
+            const payload = arr.map((g, i) => ({
+              pinGroupId: g.id,
+              sortOrder: i,
+            }))
+            await reorderPinGroups(parentGroupId, payload)
+            await refresh()
+          }}
+        >
+          <div className="pin-items">
+            {pg.tasks.map((it) => (
+              <DraggablePinItem
+                key={`${pg.id}-${it.taskId}`}
+                pinGroupId={pg.id}
+                item={it}
+                items={pg.tasks}
+              />
+            ))}
+          </div>
+          <Downshift<{ id: number; task: string }>
+            inputValue={addingTaskInput[pg.id] || ''}
+            onInputValueChange={(v) =>
+              setAddingTaskInput((s) => ({ ...s, [pg.id]: v }))
+            }
+            onSelect={(selected: { id: number; task: string } | null) => {
+              const text = selected
+                ? selected.task
+                : addingTaskInput[pg.id] || ''
+              handleAddTask(pg.id, text)
+            }}
+            selectedItem={null}
+            itemToString={(item) => (item ? item.task : '')}
+          >
+            {({
+              getInputProps,
+              getItemProps,
+              getMenuProps,
+              isOpen,
+              highlightedIndex,
+            }) => (
+              <div className="pin-input-wrap">
+                <input
+                  {...getInputProps({
+                    placeholder: 'Add task to this pinned group…',
+                    className: 'pin-input',
+                    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAddTask(pg.id, addingTaskInput[pg.id] || '')
+                      }
+                    },
+                    spellCheck: false,
+                  })}
+                />
+                <ul {...getMenuProps()} className="pin-menu">
+                  {isOpen &&
+                    (addingTaskInput[pg.id] || '').trim() !== '' &&
+                    availableTasks
+                      // Hide tasks already pinned in this group
+                      .filter((t) => !pg.tasks.some((pt) => pt.taskId === t.id))
+                      // Then filter by the query
+                      .filter((t) =>
+                        t.task
+                          .toLowerCase()
+                          .includes(
+                            (addingTaskInput[pg.id] || '').toLowerCase(),
+                          ),
+                      )
+                      .map((t, index) => (
+                        <li
+                          key={t.id}
+                          {...getItemProps({
+                            item: t as { id: number; task: string },
+                            index,
+                          })}
+                          className={
+                            highlightedIndex === index ? 'highlighted' : ''
+                          }
+                        >
+                          {t.task}
+                          {t.defaultExtraInfo &&
+                            t.defaultExtraInfo.trim() !== '' && (
+                              <> ({t.defaultExtraInfo})</>
+                            )}
+                        </li>
+                      ))}
+                </ul>
+              </div>
+            )}
+          </Downshift>
+        </PinGroupRow>
+      ))}
+
+      <div className="pin-create">
+        <input
+          type="text"
+          value={creatingName}
+          placeholder="New pinned group name…"
+          onChange={(e) => setCreatingName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCreatePinGroup()
+          }}
+          spellCheck={false}
+        />
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={handleCreatePinGroup}
+        >
+          Add pinned group
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PinGroupRow({
+  group,
+  index,
+  onRename,
+  onDelete,
+  onReorder,
+  children,
+}: {
+  group: PinGroup
+  index: number
+  onRename: (pinGroupId: number, name: string) => Promise<void>
+  onDelete: (pinGroupId: number) => Promise<void>
+  onReorder: (fromIndex: number, toIndex: number) => Promise<void>
+  children: React.ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [name, setName] = useState(group.name)
+  const [dragOver, setDragOver] = useState(false)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    return combine(
+      draggable({
+        element: el,
+        getInitialData: () => ({ type: 'pin-group', id: group.id, index }),
+      }),
+      dropTargetForElements({
+        element: el,
+        canDrop: ({ source }) =>
+          source.data.type === 'pin-group' && source.data.id !== group.id,
+        onDragEnter: () => setDragOver(true),
+        onDragLeave: () => setDragOver(false),
+        onDrop: async ({ source }) => {
+          setDragOver(false)
+          if (source.data.type !== 'pin-group') return
+          const from = source.data.index as number
+          const to = index
+          await onReorder(from, to)
+        },
+      }),
+    )
+  }, [group.id, index, onReorder])
+
+  useEffect(() => {
+    setName(group.name)
+  }, [group.name])
+
+  return (
+    <div
+      ref={ref}
+      className={`pin-group pin-group-row ${dragOver ? 'drag-over' : ''}`}
+    >
+      <div className="pin-group-header">
+        <input
+          className="pin-group-title"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={async (e) => {
+            if (e.key === 'Enter') {
+              e.currentTarget.blur()
+            } else if (e.key === 'Escape') {
+              setName(group.name)
+              e.currentTarget.blur()
+            }
+          }}
+          onBlur={async () => {
+            const trimmed = name.trim()
+            if (!trimmed) {
+              setName(group.name)
+              return
+            }
+            if (trimmed !== group.name) {
+              try {
+                await onRename(group.id, trimmed)
+              } catch (err) {
+                alert((err as Error).message)
+                setName(group.name)
+              }
+            }
+          }}
+          spellCheck={false}
+        />
+        <div className="pin-group-actions">
+          <button
+            className="pin-group-btn"
+            type="button"
+            onClick={() => onDelete(group.id)}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}

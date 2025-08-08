@@ -52,6 +52,12 @@ export interface ApiTaskGroupResponse {
   group: ApiGroup
   tasks: ApiTask[]
   notes?: { date: string; note: string }[] // add notes array
+  pins?: {
+    id: number
+    name: string
+    sortOrder: number
+    tasks: { taskId: number; task: string; sortOrder: number }[]
+  }[]
 }
 
 export interface ApiGroupsResponse {
@@ -95,6 +101,12 @@ export interface TaskGroup {
   name: string
   tasks: TaskItem[]
   notes?: { date: string; note: string }[] // add notes array
+  pins?: {
+    id: number
+    name: string
+    sortOrder: number
+    tasks: { taskId: number; task: string; sortOrder: number }[]
+  }[]
 }
 
 export const fetchGroups = async (
@@ -158,10 +170,168 @@ export const fetchGroupTasks = async (
         })),
       })),
       notes: data.notes || [], // pass notes array
+      pins: data.pins || [],
     }
   } catch (err) {
     console.error(`Error fetching tasks for group ${groupId}:`, err)
     return null
+  }
+}
+
+// Pin groups API
+export const createPinGroup = async (
+  parentGroupId: number,
+  name: string,
+): Promise<{
+  id: number
+  name: string
+  sortOrder: number
+  group_id: number
+}> => {
+  const response = await fetch(
+    `${API_BASE_URL}/groups/${parentGroupId}/pin-groups`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    },
+  )
+  if (!response.ok) {
+    let message = 'Failed to create pin group'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('createPinGroup error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return data.pinGroup
+}
+
+export const addTaskToPinGroup = async (
+  pinGroupId: number,
+  taskId: number,
+  sortOrder?: number,
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/pin-groups/${pinGroupId}/tasks`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId, sortOrder }),
+    },
+  )
+  if (!response.ok) {
+    let message = 'Failed to add task to pin group'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('addTaskToPinGroup error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+}
+
+export const removeTaskFromPinGroup = async (
+  pinGroupId: number,
+  taskId: number,
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/pin-groups/${pinGroupId}/tasks/${taskId}`,
+    { method: 'DELETE' },
+  )
+  if (!response.ok) {
+    let message = 'Failed to remove task from pin group'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('removeTaskFromPinGroup error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+}
+
+export const reorderPinGroupTasks = async (
+  pinGroupId: number,
+  items: { taskId: number; sortOrder: number }[],
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/pin-groups/${pinGroupId}/tasks/reorder`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    },
+  )
+  if (!response.ok) {
+    let message = 'Failed to reorder pinned tasks'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('reorderPinGroupTasks error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+}
+
+export const renamePinGroup = async (
+  pinGroupId: number,
+  name: string,
+): Promise<{ id: number; name: string }> => {
+  const response = await fetch(`${API_BASE_URL}/pin-groups/${pinGroupId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) {
+    let message = 'Failed to rename pin group'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('renamePinGroup error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return { id: data.group.id, name: data.group.name }
+}
+
+export const deletePinGroup = async (pinGroupId: number): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/pin-groups/${pinGroupId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    let message = 'Failed to delete pin group'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('deletePinGroup error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+}
+
+export const reorderPinGroups = async (
+  parentGroupId: number,
+  items: { pinGroupId: number; sortOrder: number }[],
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/groups/${parentGroupId}/pin-groups/reorder`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    },
+  )
+  if (!response.ok) {
+    let message = 'Failed to reorder pin groups'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('reorderPinGroups error:', err)
+    } catch {}
+    throw new Error(message)
   }
 }
 

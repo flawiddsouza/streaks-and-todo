@@ -7,6 +7,7 @@ import {
   updateTask,
 } from '../api'
 import ManageTasksModal from '../components/ManageTasksModal'
+import PinnedTasks from '../components/PinnedTasks'
 import TodoGroupTable from '../components/TodoGroupTable'
 
 export default function TodoGroup() {
@@ -119,6 +120,14 @@ export default function TodoGroup() {
         onTaskDataChange={setTaskData}
         groupId={groupId ? parseInt(groupId, 10) : undefined}
       />
+
+      {taskData[0] && groupId && (
+        <PinnedTasks
+          parentGroupId={parseInt(groupId, 10)}
+          groupData={taskData[0]}
+          onRefresh={(updated) => setTaskData([updated])}
+        />
+      )}
 
       <ManageTasksModal
         isOpen={showManageTasks}

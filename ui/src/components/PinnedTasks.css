@@ -1,0 +1,139 @@
+.pinned-section {
+  margin-top: 16px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 12px;
+}
+
+.pinned-title {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 8px 0;
+}
+
+.pin-group {
+  margin-bottom: 12px;
+}
+
+.pin-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.pin-group-title {
+  font-weight: 600;
+}
+
+.pin-group-title[contenteditable="true"] {
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.pin-group-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.pin-group-btn {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pin-group-row.drag-over {
+  outline: 2px dashed #93c5fd;
+  border-radius: 6px;
+}
+
+.pin-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.pin-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: grab;
+}
+
+.pin-task.dragging {
+  opacity: 0.6;
+}
+
+.pin-task.drag-over {
+  outline: 2px dashed #60a5fa;
+}
+
+.pin-task-text {
+  font-size: 13px;
+}
+
+.pin-remove {
+  border: none;
+  background: transparent;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.pin-input-wrap {
+  position: relative;
+}
+
+.pin-input {
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+
+.pin-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-top: 4px;
+  z-index: 10;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.pin-menu li {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.pin-menu li.highlighted {
+  background: #f3f4f6;
+}
+
+.pin-create {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.pin-create input {
+  flex: 1;
+  max-width: 260px;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
