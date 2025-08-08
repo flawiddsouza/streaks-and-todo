@@ -37,6 +37,7 @@
 .streak-actions {
   display: flex;
   gap: 0.5rem;
+  margin-left: 0.5rem;
 }
 
 .no-streaks {

@@ -1,7 +1,7 @@
-import type { TaskGroup } from '../api'
 import Modal from './Modal'
 import './ManageGroupModal.css'
 import { useEffect, useMemo, useState } from 'react'
+import { type ApiStreak, fetchAllStreaks, type TaskGroup } from '../api'
 
 interface ManageTasksModalProps {
   isOpen: boolean
@@ -9,7 +9,11 @@ interface ManageTasksModalProps {
   group: TaskGroup | null
   onSaveTask: (
     taskId: number,
-    fields: { task?: string; defaultExtraInfo?: string | null },
+    fields: {
+      task?: string
+      defaultExtraInfo?: string | null
+      streakId?: number | null
+    },
   ) => Promise<void>
 }
 
@@ -19,19 +23,39 @@ export default function ManageTasksModal({
   group,
   onSaveTask,
 }: ManageTasksModalProps) {
-  const [drafts, setDrafts] = useState<
-    Record<number, { task: string; defaultExtraInfo: string }>
-  >({})
+  type TaskDraft = {
+    task: string
+    defaultExtraInfo: string
+    streakId: number | null
+  }
+  type TaskDrafts = Record<number, TaskDraft>
+
+  const [drafts, setDrafts] = useState<TaskDrafts>({})
   const [saving, setSaving] = useState<Record<number, boolean>>({})
+  const [allStreaks, setAllStreaks] = useState<ApiStreak[]>([])
 
   useEffect(() => {
     if (!group) return
-    const init: Record<number, { task: string; defaultExtraInfo: string }> = {}
-    for (const t of group.tasks) {
-      init[t.id] = { task: t.task, defaultExtraInfo: t.defaultExtraInfo || '' }
-    }
-    setDrafts(init)
+    setDrafts((prev) => {
+      const next: TaskDrafts = {}
+      for (const t of group.tasks) {
+        const existing = prev[t.id]
+        next[t.id] = {
+          task: existing?.task ?? t.task,
+          defaultExtraInfo:
+            existing?.defaultExtraInfo ?? (t.defaultExtraInfo || ''),
+          streakId: existing?.streakId ?? t.streakId ?? null,
+        }
+      }
+      return next
+    })
   }, [group])
+
+  useEffect(() => {
+    fetchAllStreaks()
+      .then(setAllStreaks)
+      .catch(() => setAllStreaks([]))
+  }, [])
 
   const tasks = useMemo(() => {
     const list = group?.tasks ?? []
@@ -43,13 +67,18 @@ export default function ManageTasksModal({
 
   if (!group) return null
 
+  const updateDraft = (taskId: number, patch: Partial<TaskDraft>) => {
+    setDrafts((d) => ({ ...d, [taskId]: { ...d[taskId], ...patch } }))
+  }
+
   const handleChange = (
     taskId: number,
     key: 'task' | 'defaultExtraInfo',
     value: string,
-  ) => {
-    setDrafts((d) => ({ ...d, [taskId]: { ...d[taskId], [key]: value } }))
-  }
+  ) => updateDraft(taskId, { [key]: value } as Partial<TaskDraft>)
+
+  const handleStreakChange = (taskId: number, streakId: number | null) =>
+    updateDraft(taskId, { streakId })
 
   const handleSave = async (taskId: number) => {
     const draft = drafts[taskId]
@@ -57,12 +86,12 @@ export default function ManageTasksModal({
 
     setSaving((s) => ({ ...s, [taskId]: true }))
     try {
+      const trimmedTask = draft.task.trim()
+      const trimmedExtra = draft.defaultExtraInfo.trim()
       await onSaveTask(taskId, {
-        task: draft.task.trim(),
-        defaultExtraInfo:
-          draft.defaultExtraInfo.trim() === ''
-            ? null
-            : draft.defaultExtraInfo.trim(),
+        task: trimmedTask,
+        defaultExtraInfo: trimmedExtra === '' ? null : trimmedExtra,
+        streakId: draft.streakId,
       })
     } finally {
       setSaving((s) => ({ ...s, [taskId]: false }))
@@ -100,6 +129,25 @@ export default function ManageTasksModal({
                   placeholder="Default extra info (optional)"
                   className="streak-name-input"
                 />
+              </div>
+              <div style={{ flex: 2 }}>
+                <select
+                  value={drafts[t.id]?.streakId ?? ''}
+                  onChange={(e) => {
+                    const val =
+                      e.target.value === '' ? null : Number(e.target.value)
+                    handleStreakChange(t.id, val)
+                  }}
+                  className="streak-name-input"
+                  style={{ width: '100%' }}
+                >
+                  <option value="">No streak linked</option>
+                  {allStreaks.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="streak-actions">
                 <button

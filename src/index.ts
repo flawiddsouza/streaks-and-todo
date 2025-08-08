@@ -1399,14 +1399,16 @@ app
         return error(400, { message: 'Invalid task ID' })
       }
 
-      const { task, defaultExtraInfo } = body as {
+      const { task, defaultExtraInfo, streakId } = body as {
         task?: string
         defaultExtraInfo?: string | null
+        streakId?: number | null
       }
 
       if (
         (task === undefined || task === null) &&
-        defaultExtraInfo === undefined
+        defaultExtraInfo === undefined &&
+        streakId === undefined
       ) {
         return error(400, { message: 'No fields to update' })
       }
@@ -1455,6 +1457,10 @@ app
         const val = defaultExtraInfo
         updates.defaultExtraInfo =
           val === null || `${val}`.trim() === '' ? null : `${val}`
+      }
+
+      if (streakId !== undefined) {
+        updates.streakId = streakId === null ? null : streakId
       }
 
       const [updated] = await db

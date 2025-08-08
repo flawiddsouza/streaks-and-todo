@@ -33,6 +33,7 @@ export interface ApiTask {
   groupId: number
   task: string
   defaultExtraInfo: string | null
+  streakId?: number | null
   logs: ApiTaskLog[]
 }
 
@@ -87,6 +88,7 @@ export interface TaskItem {
   id: number
   task: string
   defaultExtraInfo?: string | null
+  streakId?: number | null
   records: TaskRecord[]
 }
 
@@ -162,6 +164,7 @@ export const fetchGroupTasks = async (
         id: task.id,
         task: task.task,
         defaultExtraInfo: task.defaultExtraInfo,
+        streakId: task.streakId ?? null,
         records: task.logs.map((log) => ({
           date: log.date,
           done: log.done,
@@ -686,7 +689,11 @@ export const updateTaskLogsOrder = async (
 
 export const updateTask = async (
   taskId: number,
-  fields: { task?: string; defaultExtraInfo?: string | null },
+  fields: {
+    task?: string
+    defaultExtraInfo?: string | null
+    streakId?: number | null
+  },
 ): Promise<ApiTask> => {
   const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
     method: 'PUT',
