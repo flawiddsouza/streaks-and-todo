@@ -216,3 +216,21 @@
   outline: none;
   padding: 2px 5px;
 }
+
+/* Input + action button container */
+.todo-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.todo-input-inner {
+  position: relative;
+  flex: 1;
+}
+
+/* Paste button visibility mirrors task action buttons: hidden until hover */
+.todo-input-wrap:hover .paste-pinned-btn {
+  opacity: 1;
+}

@@ -5,6 +5,49 @@ import {
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
 import Downshift from 'downshift'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+function CopyButton({
+  getText,
+  title = 'Copy',
+  className = '',
+  style = {},
+}: {
+  getText: () => string
+  title?: string
+  className?: string
+  style?: React.CSSProperties
+}) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(() => {
+    const text = getText()
+    if (navigator?.clipboard) {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 500)
+        })
+        .catch(() => {
+          alert('Failed to copy to clipboard')
+        })
+    } else {
+      alert('Clipboard API not available')
+    }
+  }, [getText])
+  return (
+    <button
+      type="button"
+      className={className}
+      style={style}
+      onClick={handleCopy}
+      title={title}
+      disabled={copied}
+    >
+      {copied ? 'Copied!' : title}
+    </button>
+  )
+}
+
 import {
   addTaskToPinGroup,
   createPinGroup,
@@ -63,6 +106,14 @@ export default function PinnedTasks({
       tasks: pg.tasks.filter((t) => availableTaskIds.has(t.taskId)),
     }))
   }, [groupData, availableTaskIds])
+
+  const defaultExtraInfoByTaskId = useMemo(() => {
+    const map = new Map<number, string | null>()
+    for (const t of availableTasks) {
+      map.set(t.id, t.defaultExtraInfo ?? null)
+    }
+    return map
+  }, [availableTasks])
 
   const refresh = useCallback(async () => {
     const updated = await fetchGroupTasks(parentGroupId)
@@ -180,6 +231,7 @@ export default function PinnedTasks({
 
     // Find the defaultExtraInfo for this task
     const taskObj = availableTasks.find((t) => t.id === item.taskId)
+
     return (
       <div
         ref={ref}
@@ -191,6 +243,25 @@ export default function PinnedTasks({
             ? ` (${taskObj.defaultExtraInfo})`
             : ''}
         </span>
+        <CopyButton
+          className="pin-group-btn"
+          style={{ padding: '0 4px', fontSize: 12 }}
+          title="Copy"
+          getText={() =>
+            JSON.stringify(
+              [
+                {
+                  taskId: item.taskId,
+                  task: item.task,
+                  sortOrder: item.sortOrder,
+                  extraInfo: taskObj?.defaultExtraInfo ?? null,
+                },
+              ],
+              null,
+              2,
+            )
+          }
+        />
         <button
           className="pin-remove"
           type="button"
@@ -212,6 +283,7 @@ export default function PinnedTasks({
           key={pg.id}
           group={pg}
           index={idx}
+          defaultExtraInfoByTaskId={defaultExtraInfoByTaskId}
           onRename={handleRenamePinGroup}
           onDelete={handleDeletePinGroup}
           onReorder={async (from, to) => {
@@ -337,6 +409,7 @@ export default function PinnedTasks({
 function PinGroupRow({
   group,
   index,
+  defaultExtraInfoByTaskId,
   onRename,
   onDelete,
   onReorder,
@@ -344,6 +417,7 @@ function PinGroupRow({
 }: {
   group: PinGroup
   index: number
+  defaultExtraInfoByTaskId: Map<number, string | null>
   onRename: (pinGroupId: number, name: string) => Promise<void>
   onDelete: (pinGroupId: number) => Promise<void>
   onReorder: (fromIndex: number, toIndex: number) => Promise<void>
@@ -419,6 +493,22 @@ function PinGroupRow({
           spellCheck={false}
         />
         <div className="pin-group-actions">
+          <CopyButton
+            className="pin-group-btn"
+            title="Copy"
+            getText={() =>
+              JSON.stringify(
+                group.tasks.map((t) => ({
+                  taskId: t.taskId,
+                  task: t.task,
+                  sortOrder: t.sortOrder,
+                  extraInfo: defaultExtraInfoByTaskId.get(t.taskId) ?? null,
+                })),
+                null,
+                2,
+              )
+            }
+          />
           <button
             className="pin-group-btn"
             type="button"

@@ -394,6 +394,12 @@ interface TaskColumnProps {
     date: string,
     taskLogs: { taskId: number; sortOrder: number }[],
   ) => void
+  isDone: boolean
+  onPastePinned: (
+    date: string,
+    done: boolean,
+    availableTasks: FlatTask[],
+  ) => void
 }
 
 function TaskColumn({
@@ -414,6 +420,8 @@ function TaskColumn({
   onEditSave,
   onEditCancel,
   onReorder,
+  isDone,
+  onPastePinned,
 }: TaskColumnProps) {
   return (
     <div className="todo-list">
@@ -454,50 +462,66 @@ function TaskColumn({
           isOpen,
           highlightedIndex,
         }) => (
-          <div>
-            <input
-              {...getInputProps({
-                placeholder,
-                className: 'todo-combobox-input',
-                onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                  // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
-                  if (e.key === 'Enter' && isOpen && highlightedIndex != null) {
-                    return
-                  }
-                  onKeyDown(e)
-                },
-                spellCheck: false,
-              })}
-            />
-            <ul
-              {...getMenuProps()}
-              className="todo-combobox-menu"
-              style={{ position: 'absolute', left: 0, right: 0 }}
+          <div className="todo-input-wrap">
+            <div className="todo-input-inner">
+              <input
+                {...getInputProps({
+                  placeholder,
+                  className: 'todo-combobox-input',
+                  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
+                    if (
+                      e.key === 'Enter' &&
+                      isOpen &&
+                      highlightedIndex != null
+                    ) {
+                      return
+                    }
+                    onKeyDown(e)
+                  },
+                  spellCheck: false,
+                })}
+              />
+              <ul
+                {...getMenuProps()}
+                className="todo-combobox-menu"
+                style={{ position: 'absolute', left: 0, right: 0 }}
+              >
+                {isOpen &&
+                  inputValue.trim() !== '' &&
+                  availableTasks
+                    .filter((item) =>
+                      item.task
+                        .toLowerCase()
+                        .includes(inputValue.toLowerCase()),
+                    )
+                    .map((item, index) => (
+                      <li
+                        {...getItemProps({ item, index })}
+                        key={item.id}
+                        className={
+                          highlightedIndex === index ? 'highlighted' : ''
+                        }
+                      >
+                        {item.task}
+                        {item.defaultExtraInfo && (
+                          <span className="task-extra-info">
+                            {' '}
+                            ({item.defaultExtraInfo})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+              </ul>
+            </div>
+            <button
+              type="button"
+              className="task-action-btn copy-task-btn paste-pinned-btn"
+              onClick={() => onPastePinned(date, isDone, availableTasks)}
+              title="Paste pinned tasks from clipboard"
             >
-              {isOpen &&
-                inputValue.trim() !== '' &&
-                availableTasks
-                  .filter((item) =>
-                    item.task.toLowerCase().includes(inputValue.toLowerCase()),
-                  )
-                  .map((item, index) => (
-                    <li
-                      {...getItemProps({ item, index })}
-                      key={item.id}
-                      className={
-                        highlightedIndex === index ? 'highlighted' : ''
-                      }
-                    >
-                      {item.task}
-                      {item.defaultExtraInfo && (
-                        <span className="task-extra-info">
-                          {' '}
-                          ({item.defaultExtraInfo})
-                        </span>
-                      )}
-                    </li>
-                  ))}
-            </ul>
+              📥
+            </button>
           </div>
         )}
       </Downshift>
@@ -915,6 +939,64 @@ export default function TodoGroupTable({
     [groupId, onTaskDataChange],
   )
 
+  const handlePastePinned = useCallback(
+    async (date: string, done: boolean, availableTasksForCell: FlatTask[]) => {
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          alert('Clipboard API not available')
+          return
+        }
+        const text = await navigator.clipboard.readText()
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          alert('Clipboard does not contain valid JSON')
+          return
+        }
+        if (!Array.isArray(parsed)) {
+          alert('Expected an array of pinned tasks')
+          return
+        }
+        const byId = new Set(availableTasksForCell.map((t) => t.id))
+
+        // Accept objects that have taskId (preferred) or task name fallback
+        const idByName = new Map(
+          availableTasksForCell.map((t) => [t.task.toLowerCase(), t.id]),
+        )
+
+        // Preserve order from clipboard as provided
+        for (const raw of parsed as unknown[]) {
+          if (!raw || typeof raw !== 'object') continue
+          const obj = raw as Record<string, unknown>
+          let id: number | undefined
+          const taskIdVal = obj.taskId
+          const taskNameVal = obj.task
+          const extraInfoVal = obj.extraInfo
+
+          if (typeof taskIdVal === 'number' && byId.has(taskIdVal)) {
+            id = taskIdVal
+          } else if (
+            typeof taskNameVal === 'string' &&
+            idByName.has(taskNameVal.toLowerCase())
+          ) {
+            id = idByName.get(taskNameVal.toLowerCase())
+          }
+
+          if (id) {
+            const extraInfo =
+              typeof extraInfoVal === 'string' ? extraInfoVal : undefined
+            await addTaskToCell(id, date, done, extraInfo)
+          }
+        }
+      } catch (err) {
+        console.error('Error pasting pinned tasks:', err)
+        alert('Failed to paste pinned tasks')
+      }
+    },
+    [addTaskToCell],
+  )
+
   if (loading) {
     return (
       <div className="virtuoso-table-container loading-container">
@@ -986,6 +1068,10 @@ export default function TodoGroupTable({
                   onInputChange={(val) =>
                     setDoneInputValues((v) => ({ ...v, [dateRow.date]: val }))
                   }
+                  isDone={true}
+                  onPastePinned={(date, done, avail) =>
+                    handlePastePinned(date, done, avail)
+                  }
                   onTaskSelect={(selectedTask) =>
                     handleTaskSelect(
                       selectedTask,
@@ -1033,6 +1119,10 @@ export default function TodoGroupTable({
                   placeholder=""
                   onInputChange={(val) =>
                     setTodoInputValues((v) => ({ ...v, [dateRow.date]: val }))
+                  }
+                  isDone={false}
+                  onPastePinned={(date, done, avail) =>
+                    handlePastePinned(date, done, avail)
                   }
                   onTaskSelect={(selectedTask) =>
                     handleTaskSelect(
