@@ -23,11 +23,11 @@
 
 .pin-group-title {
   font-weight: 600;
+  border: none;
 }
 
-.pin-group-title[contenteditable="true"] {
-  padding: 1px 4px;
-  border-radius: 4px;
+.pin-group-title:focus {
+  outline: none;
 }
 
 .pin-group-actions {
