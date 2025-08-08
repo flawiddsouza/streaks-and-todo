@@ -26,6 +26,7 @@ export interface ApiStreak {
   name: string
   logs: ApiStreakLog[]
   sortOrder: number
+  tasks?: ApiTask[]
 }
 
 export interface ApiTask {
@@ -35,6 +36,7 @@ export interface ApiTask {
   defaultExtraInfo: string | null
   streakId?: number | null
   logs: ApiTaskLog[]
+  groupName?: string
 }
 
 export interface ApiGroup {
@@ -69,6 +71,7 @@ export interface StreakRecord {
   date: string
   done: boolean
   note?: string
+  addedByTasks?: string[]
 }
 
 export interface TaskRecord {
@@ -139,6 +142,13 @@ export const fetchGroupStreaks = async (
           date: log.date,
           done: log.done,
           note: log.note || undefined,
+          // if API bundled linked tasks, compute which tasks mark this date as done
+          addedByTasks:
+            (streak.tasks || [])
+              .filter((t) => t.logs.some((l) => l.date === log.date && l.done))
+              .map((t) =>
+                t.groupName ? `${t.task} — ${t.groupName}` : t.task,
+              ) || undefined,
         })),
       })),
     }
@@ -353,9 +363,18 @@ export const toggleStreakLog = async (
   })
 
   if (!response.ok) {
-    const errorData = await response.json()
-    console.error('Failed to toggle streak log:', errorData)
-    throw new Error('Failed to toggle streak log')
+    let message = 'Failed to toggle streak log'
+    try {
+      const errorData = await response.json()
+      message = errorData.message || message
+      console.error('Failed to toggle streak log:', errorData)
+      const err = new Error(message) as Error & { details?: unknown }
+      err.details = errorData
+      throw err
+    } catch (e) {
+      if (message) throw new Error(message)
+      throw e
+    }
   }
 
   const data = await response.json()

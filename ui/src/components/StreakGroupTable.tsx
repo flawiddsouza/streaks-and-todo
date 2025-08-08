@@ -1,5 +1,11 @@
 import dayjs from 'dayjs'
-import { type Dispatch, type SetStateAction, useMemo, useRef } from 'react'
+import {
+  type Dispatch,
+  type SetStateAction,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
   type StreakGroup,
@@ -8,6 +14,7 @@ import {
   updateStreakLogNote,
 } from '../api'
 import './StreakGroupTable.css'
+import Modal from './Modal'
 
 interface StreakGroupTableProps {
   streakData: StreakGroup[]
@@ -104,6 +111,16 @@ export default function StreakGroupTable({
 }: StreakGroupTableProps) {
   const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const longPressTriggeredRef = useRef(false)
+  const [blockInfo, setBlockInfo] = useState<
+    | {
+        isOpen: true
+        date: string
+        streakName: string
+        tasks: string[]
+        message?: string
+      }
+    | { isOpen: false }
+  >({ isOpen: false })
 
   const allStreaks = useMemo(() => {
     return streakData.flatMap((group) =>
@@ -132,7 +149,11 @@ export default function StreakGroupTable({
         new Map(
           streak.records.map((record) => [
             record.date,
-            { done: record.done, note: record.note },
+            {
+              done: record.done,
+              note: record.note,
+              addedByTasks: record.addedByTasks ?? [],
+            },
           ]),
         ),
       ]),
@@ -147,6 +168,7 @@ export default function StreakGroupTable({
           recordsLookup.get(streak.name)?.get(date) ?? {
             done: false,
             note: undefined,
+            addedByTasks: [],
           },
         ]),
       ),
@@ -181,6 +203,22 @@ export default function StreakGroupTable({
     if (!streakLocation || !dateRow) return
 
     const { groupIndex, streakIndex, streakId } = streakLocation
+
+    // Prevent removing a streak if it's marked done by a task
+    const recordData = dateRow.records.get(streakName)
+    const isDone = recordData?.done === true
+    const addedByTasks = recordData?.addedByTasks ?? []
+    if (isDone && addedByTasks.length > 0) {
+      setBlockInfo({
+        isOpen: true,
+        date,
+        streakName,
+        tasks: addedByTasks,
+        message:
+          "This streak was marked done by the following task(s) and can't be removed here. Undo/remove the task to remove this streak entry.",
+      })
+      return
+    }
 
     try {
       const updatedLog = await toggleStreakLog(streakId, date)
@@ -221,8 +259,41 @@ export default function StreakGroupTable({
 
         return newData
       })
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error toggling streak record:', error)
+      // If server blocked due to linked tasks, show modal with details
+      const message =
+        (error as Error)?.message || 'Failed to toggle streak record'
+      // Try to parse tasks from message (fallback) — server also sends details.tasks
+      let tasks: string[] = []
+      const anyErr = error as Error & {
+        details?: {
+          tasks?: string[]
+          items?: { task: string; group?: string }[]
+        }
+      }
+      if (anyErr.details?.items && Array.isArray(anyErr.details.items)) {
+        tasks = anyErr.details.items.map((i) =>
+          i.group ? `${i.task} — ${i.group}` : i.task,
+        )
+      } else if (anyErr.details?.tasks && Array.isArray(anyErr.details.tasks)) {
+        tasks = anyErr.details.tasks
+      } else {
+        const match = message.match(/task\(s\):\s(.+)\.\sUndo/i)
+        if (match?.[1]) {
+          tasks = match[1].split(',').map((s) => s.trim())
+        }
+      }
+
+      if (tasks.length > 0 || message) {
+        setBlockInfo({
+          isOpen: true,
+          date,
+          streakName,
+          tasks,
+          message,
+        })
+      }
     }
   }
 
@@ -403,6 +474,28 @@ export default function StreakGroupTable({
 
   return (
     <div className="virtuoso-table-container">
+      {blockInfo.isOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setBlockInfo({ isOpen: false })}
+          title="Streak change blocked"
+          maxWidth="520px"
+        >
+          <div>
+            <div style={{ marginBottom: '0.5rem' }}>
+              {blockInfo.message ||
+                "This streak was set by task(s) and can't be removed here."}
+            </div>
+            {blockInfo.tasks?.length > 0 && (
+              <ul style={{ paddingLeft: '1.2rem', margin: 0 }}>
+                {blockInfo.tasks.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </Modal>
+      )}
       <TableVirtuoso
         data={dateRows}
         initialTopMostItemIndex={dateRows.length - 1}

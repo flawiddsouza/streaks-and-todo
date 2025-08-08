@@ -128,6 +128,16 @@ const app = new Elysia()
               .where(inArray(taskLogTable.taskId, taskIds))
           : []
 
+      // fetch the groups for these tasks to expose their group names
+      const taskGroupIds = Array.from(new Set(tasks.map((t) => t.groupId)))
+      const taskGroups =
+        taskGroupIds.length > 0
+          ? await db
+              .select()
+              .from(groupsTable)
+              .where(inArray(groupsTable.id, taskGroupIds))
+          : []
+
       return {
         group: group[0],
         streaks: streaksInGroup.map((item) => ({
@@ -138,6 +148,7 @@ const app = new Elysia()
             .filter((task) => task.streakId === item.streak.id)
             .map((task) => ({
               ...task,
+              groupName: taskGroups.find((g) => g.id === task.groupId)?.name,
               logs: taskLogs.filter((log) => log.taskId === task.id),
             })),
         })),
@@ -304,6 +315,69 @@ const app = new Elysia()
 
         let log: typeof streakLogTable.$inferSelect
         if (existingLog.length > 0) {
+          // If attempting to toggle from done -> undone, ensure no linked task is done for this date
+          if (existingLog[0].done === true) {
+            const linkedTasks = await db
+              .select()
+              .from(tasksTable)
+              .where(eq(tasksTable.streakId, streakIdNum))
+
+            if (linkedTasks.length > 0) {
+              const taskIds = linkedTasks.map((t) => t.id)
+              const blockingTaskLogs =
+                taskIds.length > 0
+                  ? await db
+                      .select()
+                      .from(taskLogTable)
+                      .where(
+                        and(
+                          inArray(taskLogTable.taskId, taskIds),
+                          eq(taskLogTable.date, date),
+                          eq(taskLogTable.done, true),
+                        ),
+                      )
+                  : []
+
+              if (blockingTaskLogs.length > 0) {
+                const blockingTaskIds = new Set(
+                  blockingTaskLogs.map((b) => b.taskId),
+                )
+                const blockingTasks = linkedTasks.filter((t) =>
+                  blockingTaskIds.has(t.id),
+                )
+
+                // fetch group names for these tasks
+                const blockingGroupIds = Array.from(
+                  new Set(blockingTasks.map((t) => t.groupId)),
+                )
+                const blockingGroups =
+                  blockingGroupIds.length > 0
+                    ? await db
+                        .select()
+                        .from(groupsTable)
+                        .where(inArray(groupsTable.id, blockingGroupIds))
+                    : []
+                const groupNameById = new Map(
+                  blockingGroups.map((g) => [g.id, g.name] as const),
+                )
+
+                const blockingTaskNames = blockingTasks.map((t) => t.task)
+                const items = blockingTasks.map((t) => ({
+                  task: t.task,
+                  group: groupNameById.get(t.groupId) || '',
+                }))
+
+                return error(409, {
+                  message:
+                    "Can't undo this streak log because it's marked done by task(s): " +
+                    blockingTaskNames.join(', ') +
+                    '. Undo or remove the task log to remove this streak entry.',
+                  tasks: blockingTaskNames,
+                  items,
+                })
+              }
+            }
+          }
           const [updatedLog] = await db
             .update(streakLogTable)
             .set({ done: !existingLog[0].done })
