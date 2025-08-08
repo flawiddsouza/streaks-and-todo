@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { fetchGroupTasks, type TaskGroup, updateGroup } from '../api'
+import {
+  fetchGroupTasks,
+  type TaskGroup,
+  updateGroup,
+  updateTask,
+} from '../api'
+import ManageTasksModal from '../components/ManageTasksModal'
 import TodoGroupTable from '../components/TodoGroupTable'
 
 export default function TodoGroup() {
@@ -8,6 +14,7 @@ export default function TodoGroup() {
   const [taskData, setTaskData] = useState<TaskGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showManageTasks, setShowManageTasks] = useState(false)
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   const handleTitleChange = async (
@@ -80,6 +87,17 @@ export default function TodoGroup() {
             </Link>
           )}
         </div>
+        <div className="nav-right">
+          {groupId && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowManageTasks(true)}
+            >
+              Manage Tasks
+            </button>
+          )}
+        </div>
       </nav>
 
       {/** biome-ignore lint/a11y/useHeadingContent: dynamic replacement */}
@@ -100,6 +118,23 @@ export default function TodoGroup() {
         error={error}
         onTaskDataChange={setTaskData}
         groupId={groupId ? parseInt(groupId, 10) : undefined}
+      />
+
+      <ManageTasksModal
+        isOpen={showManageTasks}
+        onClose={() => setShowManageTasks(false)}
+        group={taskData[0] ?? null}
+        onSaveTask={async (taskId, fields) => {
+          try {
+            await updateTask(taskId, fields)
+            if (groupId) {
+              const updated = await fetchGroupTasks(parseInt(groupId, 10))
+              if (updated) setTaskData([updated])
+            }
+          } catch (err) {
+            alert((err as Error).message)
+          }
+        }}
       />
     </div>
   )

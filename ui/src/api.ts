@@ -513,3 +513,27 @@ export const updateTaskLogsOrder = async (
     throw new Error('Failed to update task logs order')
   }
 }
+
+export const updateTask = async (
+  taskId: number,
+  fields: { task?: string; defaultExtraInfo?: string | null },
+): Promise<ApiTask> => {
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+
+  if (!response.ok) {
+    let message = 'Failed to update task'
+    try {
+      const errorData = await response.json()
+      message = errorData.message || message
+      console.error('Failed to update task:', errorData)
+    } catch {}
+    throw new Error(message)
+  }
+
+  const data = await response.json()
+  return data.task
+}

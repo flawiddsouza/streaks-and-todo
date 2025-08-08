@@ -1020,6 +1020,85 @@ app
     }
   })
 
+  // Update a task's core fields (name, defaultExtraInfo)
+  .put('/tasks/:taskId', async ({ params: { taskId }, body, error }) => {
+    try {
+      const taskIdNum = parseInt(taskId)
+      if (Number.isNaN(taskIdNum)) {
+        return error(400, { message: 'Invalid task ID' })
+      }
+
+      const { task, defaultExtraInfo } = body as {
+        task?: string
+        defaultExtraInfo?: string | null
+      }
+
+      if (
+        (task === undefined || task === null) &&
+        defaultExtraInfo === undefined
+      ) {
+        return error(400, { message: 'No fields to update' })
+      }
+
+      // Fetch existing task
+      const existing = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskIdNum))
+        .limit(1)
+
+      if (existing.length === 0) {
+        return error(404, { message: 'Task not found' })
+      }
+
+      const updates: Partial<typeof tasksTable.$inferInsert> = {}
+
+      if (task !== undefined) {
+        const trimmed = (task ?? '').trim()
+        if (trimmed.length === 0) {
+          return error(400, { message: 'Task name cannot be empty' })
+        }
+
+        // Prevent duplicate task names within the same group
+        const dup = await db
+          .select()
+          .from(tasksTable)
+          .where(
+            and(
+              eq(tasksTable.groupId, existing[0].groupId),
+              eq(tasksTable.task, trimmed),
+            ),
+          )
+          .limit(1)
+
+        if (dup.length > 0 && dup[0].id !== taskIdNum) {
+          return error(409, {
+            message: 'Task with this name already exists in the group',
+          })
+        }
+
+        updates.task = trimmed
+      }
+
+      if (defaultExtraInfo !== undefined) {
+        const val = defaultExtraInfo
+        updates.defaultExtraInfo =
+          val === null || `${val}`.trim() === '' ? null : `${val}`
+      }
+
+      const [updated] = await db
+        .update(tasksTable)
+        .set(updates)
+        .where(eq(tasksTable.id, taskIdNum))
+        .returning()
+
+      return { task: updated }
+    } catch (err) {
+      console.error('Error updating task:', err)
+      return error(500, { message: 'Internal server error' })
+    }
+  })
+
 app.listen(9008)
 
 console.log(
