@@ -1,6 +1,8 @@
+/// <reference path="./elysia-types.d.ts" />
 import { cors } from '@elysiajs/cors'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { Elysia } from 'elysia'
+import { type Context, Elysia } from 'elysia'
+import { auth } from './auth'
 import { db } from './db'
 import {
   groupNotesTable,
@@ -13,8 +15,14 @@ import {
   tasksTable,
 } from './db/schema'
 
+// Authentication: each route validates session and derives userId (no global mutable store usage).
+
 // When a task is marked done and it's linked to a streak, ensure the streak has a done log for the same date.
-async function ensureStreakDoneForDate(streakId: number, date: string) {
+async function ensureStreakDoneForDate(
+  streakId: number,
+  date: string,
+  userId: string,
+) {
   const existing = await db
     .select()
     .from(streakLogTable)
@@ -38,13 +46,17 @@ async function ensureStreakDoneForDate(streakId: number, date: string) {
   } else {
     await db
       .insert(streakLogTable)
-      .values({ streakId, date, done: true })
+      .values({ userId, streakId, date, done: true })
       .returning()
   }
 }
 
 // When a task is moved to undone and it's linked to a streak, clear the streak for that date.
-async function ensureStreakUndoneForDate(streakId: number, date: string) {
+async function ensureStreakUndoneForDate(
+  streakId: number,
+  date: string,
+  _userId: string, // reserved for potential auditing
+) {
   const existing = await db
     .select()
     .from(streakLogTable)
@@ -68,195 +80,281 @@ async function ensureStreakUndoneForDate(streakId: number, date: string) {
   }
 }
 
+const betterAuthView = (context: Context) => {
+  const BETTER_AUTH_ACCEPT_METHODS = ['POST', 'GET']
+  // validate request method
+  if (BETTER_AUTH_ACCEPT_METHODS.includes(context.request.method)) {
+    return auth.handler(context.request)
+  } else {
+    context.error(405)
+  }
+}
+
 const app = new Elysia()
-  .use(cors())
+  .use(
+    cors({
+      credentials: true,
+      origin: ['http://localhost:9000'],
+    }),
+  )
+  // Optionally enforce auth globally by uncommenting below. For now, each route checks explicitly.
+  // .onBeforeHandle(async (ctx) => { ... })
+  .all('/api/auth/*', betterAuthView)
   .get('/', () => 'Hello Elysia')
-  .get('/streak-groups/:groupId', async ({ params: { groupId }, error }) => {
-    try {
-      const groupIdNum = parseInt(groupId)
+  .get(
+    '/streak-groups/:groupId',
+    async ({ params: { groupId }, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const groupIdNum = parseInt(groupId)
 
-      if (Number.isNaN(groupIdNum)) {
-        return error(400, { message: 'Invalid group ID' })
-      }
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
 
-      const group = await db
-        .select()
-        .from(groupsTable)
-        .where(eq(groupsTable.id, groupIdNum))
-        .limit(1)
+        const group = await db
+          .select()
+          .from(groupsTable)
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
+          .limit(1)
 
-      if (group.length === 0) {
-        return error(404, { message: 'Group not found' })
-      }
+        if (group.length === 0) {
+          return error(404, { message: 'Group not found' })
+        }
 
-      const streaksInGroup = await db
-        .select({
-          streak: streaksTable,
-          groupRelation: streakGroupsTable,
-        })
-        .from(streakGroupsTable)
-        .innerJoin(
-          streaksTable,
-          eq(streakGroupsTable.streakId, streaksTable.id),
-        )
-        .where(eq(streakGroupsTable.groupId, groupIdNum))
-        .orderBy(streakGroupsTable.sortOrder)
+        const streaksInGroup = await db
+          .select({
+            streak: streaksTable,
+            groupRelation: streakGroupsTable,
+          })
+          .from(streakGroupsTable)
+          .innerJoin(
+            streaksTable,
+            eq(streakGroupsTable.streakId, streaksTable.id),
+          )
+          .where(
+            and(
+              eq(streakGroupsTable.groupId, groupIdNum),
+              eq(streakGroupsTable.userId, userId),
+            ),
+          )
+          .orderBy(streakGroupsTable.sortOrder)
 
-      const streakIds = streaksInGroup.map((item) => item.streak.id)
-      const streakLogs =
-        streakIds.length > 0
-          ? await db
-              .select()
-              .from(streakLogTable)
-              .where(inArray(streakLogTable.streakId, streakIds))
-          : []
+        const streakIds = streaksInGroup.map((item) => item.streak.id)
+        const streakLogs =
+          streakIds.length > 0
+            ? await db
+                .select()
+                .from(streakLogTable)
+                .where(
+                  and(
+                    inArray(streakLogTable.streakId, streakIds),
+                    eq(streakLogTable.userId, userId),
+                  ),
+                )
+            : []
 
-      const tasks =
-        streakIds.length > 0
-          ? await db
-              .select()
-              .from(tasksTable)
-              .where(inArray(tasksTable.streakId, streakIds))
-          : []
+        const tasks =
+          streakIds.length > 0
+            ? await db
+                .select()
+                .from(tasksTable)
+                .where(
+                  and(
+                    inArray(tasksTable.streakId, streakIds),
+                    eq(tasksTable.userId, userId),
+                  ),
+                )
+            : []
 
-      const taskIds = tasks.map((task) => task.id)
-      const taskLogs =
-        taskIds.length > 0
-          ? await db
-              .select()
-              .from(taskLogTable)
-              .where(inArray(taskLogTable.taskId, taskIds))
-          : []
+        const taskIds = tasks.map((task) => task.id)
+        const taskLogs =
+          taskIds.length > 0
+            ? await db
+                .select()
+                .from(taskLogTable)
+                .where(
+                  and(
+                    inArray(taskLogTable.taskId, taskIds),
+                    eq(taskLogTable.userId, userId),
+                  ),
+                )
+            : []
 
-      // fetch the groups for these tasks to expose their group names
-      const taskGroupIds = Array.from(new Set(tasks.map((t) => t.groupId)))
-      const taskGroups =
-        taskGroupIds.length > 0
-          ? await db
-              .select()
-              .from(groupsTable)
-              .where(inArray(groupsTable.id, taskGroupIds))
-          : []
+        // fetch the groups for these tasks to expose their group names
+        const taskGroupIds = Array.from(new Set(tasks.map((t) => t.groupId)))
+        const taskGroups =
+          taskGroupIds.length > 0
+            ? await db
+                .select()
+                .from(groupsTable)
+                .where(
+                  and(
+                    inArray(groupsTable.id, taskGroupIds),
+                    eq(groupsTable.userId, userId),
+                  ),
+                )
+            : []
 
-      return {
-        group: group[0],
-        streaks: streaksInGroup.map((item) => ({
-          ...item.streak,
-          sortOrder: item.groupRelation.sortOrder,
-          logs: streakLogs.filter((log) => log.streakId === item.streak.id),
-          tasks: tasks
-            .filter((task) => task.streakId === item.streak.id)
-            .map((task) => ({
-              ...task,
-              groupName: taskGroups.find((g) => g.id === task.groupId)?.name,
-              logs: taskLogs.filter((log) => log.taskId === task.id),
-            })),
-        })),
-      }
-    } catch (err) {
-      console.error('Error fetching streak group data:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
-  .get('/task-groups/:groupId', async ({ params: { groupId }, error }) => {
-    try {
-      const groupIdNum = parseInt(groupId)
-
-      if (Number.isNaN(groupIdNum)) {
-        return error(400, { message: 'Invalid group ID' })
-      }
-
-      const group = await db
-        .select()
-        .from(groupsTable)
-        .where(eq(groupsTable.id, groupIdNum))
-        .limit(1)
-
-      if (group.length === 0) {
-        return error(404, { message: 'Group not found' })
-      }
-
-      // Check if this is actually a task group
-      if (group[0].type !== 'tasks') {
-        return error(400, { message: 'Group is not a task group' })
-      }
-
-      const tasks = await db
-        .select()
-        .from(tasksTable)
-        .where(eq(tasksTable.groupId, groupIdNum))
-
-      const taskIds = tasks.map((task) => task.id)
-      const taskLogs =
-        taskIds.length > 0
-          ? await db
-              .select()
-              .from(taskLogTable)
-              .where(inArray(taskLogTable.taskId, taskIds))
-              .orderBy(taskLogTable.date, taskLogTable.sortOrder)
-          : []
-
-      // Fetch group notes for this group
-      const groupNotes = await db
-        .select()
-        .from(groupNotesTable)
-        .where(eq(groupNotesTable.groupId, groupIdNum))
-
-      // Fetch any pin subgroups under this task group
-      const pinGroups = await db
-        .select()
-        .from(groupsTable)
-        .where(
-          and(
-            eq(groupsTable.group_id, groupIdNum),
-            eq(groupsTable.type, 'pins'),
-          ),
-        )
-        .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
-
-      const pinGroupIds = pinGroups.map((g) => g.id)
-      const pinItems =
-        pinGroupIds.length > 0
-          ? await db
-              .select({
-                pin: groupPinsTable,
-                task: tasksTable,
-              })
-              .from(groupPinsTable)
-              .innerJoin(tasksTable, eq(groupPinsTable.taskId, tasksTable.id))
-              .where(inArray(groupPinsTable.groupId, pinGroupIds))
-          : []
-
-      const pins = pinGroups.map((pg) => ({
-        id: pg.id,
-        name: pg.name,
-        sortOrder: pg.sortOrder,
-        tasks: pinItems
-          .filter((pi) => pi.pin.groupId === pg.id)
-          .sort((a, b) => a.pin.sortOrder - b.pin.sortOrder)
-          .map((pi) => ({
-            taskId: pi.task.id,
-            task: pi.task.task,
-            sortOrder: pi.pin.sortOrder,
+        return {
+          group: group[0],
+          streaks: streaksInGroup.map((item) => ({
+            ...item.streak,
+            sortOrder: item.groupRelation.sortOrder,
+            logs: streakLogs.filter((log) => log.streakId === item.streak.id),
+            tasks: tasks
+              .filter((task) => task.streakId === item.streak.id)
+              .map((task) => ({
+                ...task,
+                groupName: taskGroups.find((g) => g.id === task.groupId)?.name,
+                logs: taskLogs.filter((log) => log.taskId === task.id),
+              })),
           })),
-      }))
-
-      return {
-        group: group[0],
-        tasks: tasks.map((task) => ({
-          ...task,
-          logs: taskLogs.filter((log) => log.taskId === task.id),
-        })),
-        notes: groupNotes.map((note) => ({ date: note.date, note: note.note })),
-        pins,
+        }
+      } catch (err) {
+        console.error('Error fetching streak group data:', err)
+        return error(500, { message: 'Internal server error' })
       }
-    } catch (err) {
-      console.error('Error fetching task group data:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
-  .get('/groups', async ({ query, error }) => {
+    },
+  )
+  .get(
+    '/task-groups/:groupId',
+    async ({ params: { groupId }, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const groupIdNum = parseInt(groupId)
+
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
+
+        const group = await db
+          .select()
+          .from(groupsTable)
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
+          .limit(1)
+
+        if (group.length === 0) {
+          return error(404, { message: 'Group not found' })
+        }
+
+        // Check if this is actually a task group
+        if (group[0].type !== 'tasks') {
+          return error(400, { message: 'Group is not a task group' })
+        }
+
+        const tasks = await db
+          .select()
+          .from(tasksTable)
+          .where(
+            and(
+              eq(tasksTable.groupId, groupIdNum),
+              eq(tasksTable.userId, userId),
+            ),
+          )
+
+        const taskIds = tasks.map((task) => task.id)
+        const taskLogs =
+          taskIds.length > 0
+            ? await db
+                .select()
+                .from(taskLogTable)
+                .where(
+                  and(
+                    inArray(taskLogTable.taskId, taskIds),
+                    eq(taskLogTable.userId, userId),
+                  ),
+                )
+                .orderBy(taskLogTable.date, taskLogTable.sortOrder)
+            : []
+
+        // Fetch group notes for this group
+        const groupNotes = await db
+          .select()
+          .from(groupNotesTable)
+          .where(
+            and(
+              eq(groupNotesTable.groupId, groupIdNum),
+              eq(groupNotesTable.userId, userId),
+            ),
+          )
+
+        // Fetch any pin subgroups under this task group
+        const pinGroups = await db
+          .select()
+          .from(groupsTable)
+          .where(
+            and(
+              eq(groupsTable.group_id, groupIdNum),
+              eq(groupsTable.type, 'pins'),
+              eq(groupsTable.userId, userId),
+            ),
+          )
+          .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
+
+        const pinGroupIds = pinGroups.map((g) => g.id)
+        const pinItems =
+          pinGroupIds.length > 0
+            ? await db
+                .select({
+                  pin: groupPinsTable,
+                  task: tasksTable,
+                })
+                .from(groupPinsTable)
+                .innerJoin(tasksTable, eq(groupPinsTable.taskId, tasksTable.id))
+                .where(
+                  and(
+                    inArray(groupPinsTable.groupId, pinGroupIds),
+                    eq(groupPinsTable.userId, userId),
+                  ),
+                )
+            : []
+
+        const pins = pinGroups.map((pg) => ({
+          id: pg.id,
+          name: pg.name,
+          sortOrder: pg.sortOrder,
+          tasks: pinItems
+            .filter((pi) => pi.pin.groupId === pg.id)
+            .sort((a, b) => a.pin.sortOrder - b.pin.sortOrder)
+            .map((pi) => ({
+              taskId: pi.task.id,
+              task: pi.task.task,
+              sortOrder: pi.pin.sortOrder,
+            })),
+        }))
+
+        return {
+          group: group[0],
+          tasks: tasks.map((task) => ({
+            ...task,
+            logs: taskLogs.filter((log) => log.taskId === task.id),
+          })),
+          notes: groupNotes.map((note) => ({
+            date: note.date,
+            note: note.note,
+          })),
+          pins,
+        }
+      } catch (err) {
+        console.error('Error fetching task group data:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .get('/groups', async ({ query, error, request }) => {
     try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const { type } = query as { type: 'streaks' | 'tasks' }
 
       if (!type || (type !== 'streaks' && type !== 'tasks')) {
@@ -269,7 +367,7 @@ const app = new Elysia()
       const groups = await db
         .select()
         .from(groupsTable)
-        .where(eq(groupsTable.type, type))
+        .where(and(eq(groupsTable.type, type), eq(groupsTable.userId, userId)))
         .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
 
       return { groups }
@@ -280,8 +378,11 @@ const app = new Elysia()
   })
   .post(
     '/streaks/:streakId/toggle',
-    async ({ params: { streakId }, body, error }) => {
+    async ({ params: { streakId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const streakIdNum = parseInt(streakId)
         const { date } = body as { date: string }
 
@@ -296,7 +397,12 @@ const app = new Elysia()
         const streak = await db
           .select()
           .from(streaksTable)
-          .where(eq(streaksTable.id, streakIdNum))
+          .where(
+            and(
+              eq(streaksTable.id, streakIdNum),
+              eq(streaksTable.userId, userId),
+            ),
+          )
           .limit(1)
 
         if (streak.length === 0) {
@@ -320,7 +426,12 @@ const app = new Elysia()
             const linkedTasks = await db
               .select()
               .from(tasksTable)
-              .where(eq(tasksTable.streakId, streakIdNum))
+              .where(
+                and(
+                  eq(tasksTable.streakId, streakIdNum),
+                  eq(tasksTable.userId, userId),
+                ),
+              )
 
             if (linkedTasks.length > 0) {
               const taskIds = linkedTasks.map((t) => t.id)
@@ -334,6 +445,7 @@ const app = new Elysia()
                           inArray(taskLogTable.taskId, taskIds),
                           eq(taskLogTable.date, date),
                           eq(taskLogTable.done, true),
+                          eq(taskLogTable.userId, userId),
                         ),
                       )
                   : []
@@ -355,7 +467,12 @@ const app = new Elysia()
                     ? await db
                         .select()
                         .from(groupsTable)
-                        .where(inArray(groupsTable.id, blockingGroupIds))
+                        .where(
+                          and(
+                            inArray(groupsTable.id, blockingGroupIds),
+                            eq(groupsTable.userId, userId),
+                          ),
+                        )
                     : []
                 const groupNameById = new Map(
                   blockingGroups.map((g) => [g.id, g.name] as const),
@@ -392,11 +509,7 @@ const app = new Elysia()
         } else {
           const [newLog] = await db
             .insert(streakLogTable)
-            .values({
-              streakId: streakIdNum,
-              date,
-              done: true,
-            })
+            .values({ userId, streakId: streakIdNum, date, done: true })
             .returning()
           log = newLog
         }
@@ -410,8 +523,11 @@ const app = new Elysia()
   )
   .put(
     '/streaks/:streakId/:date/note',
-    async ({ params: { streakId, date }, body, error }) => {
+    async ({ params: { streakId, date }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const streakIdNum = parseInt(streakId)
         const { note } = body as { note: string }
 
@@ -426,7 +542,12 @@ const app = new Elysia()
         const streak = await db
           .select()
           .from(streaksTable)
-          .where(eq(streaksTable.id, streakIdNum))
+          .where(
+            and(
+              eq(streaksTable.id, streakIdNum),
+              eq(streaksTable.userId, userId),
+            ),
+          )
           .limit(1)
 
         if (streak.length === 0) {
@@ -461,6 +582,7 @@ const app = new Elysia()
           const [newLog] = await db
             .insert(streakLogTable)
             .values({
+              userId,
               streakId: streakIdNum,
               date,
               note: note || null,
@@ -479,17 +601,26 @@ const app = new Elysia()
   )
 
 app
-  .get('/streaks', async ({ error }) => {
+  .get('/streaks', async ({ error, request }) => {
     try {
-      const streaks = await db.select().from(streaksTable)
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
+      const streaks = await db
+        .select()
+        .from(streaksTable)
+        .where(eq(streaksTable.userId, userId))
       return { streaks }
     } catch (err) {
       console.error('Error fetching all streaks:', err)
       return error(500, { message: 'Internal server error' })
     }
   })
-  .post('/streaks', async ({ body, error }) => {
+  .post('/streaks', async ({ body, error, request }) => {
     try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const { name } = body as { name: string }
 
       if (!name || name.trim().length === 0) {
@@ -499,7 +630,12 @@ app
       const existingStreak = await db
         .select()
         .from(streaksTable)
-        .where(eq(streaksTable.name, name.trim()))
+        .where(
+          and(
+            eq(streaksTable.name, name.trim()),
+            eq(streaksTable.userId, userId),
+          ),
+        )
         .limit(1)
 
       if (existingStreak.length > 0) {
@@ -508,7 +644,7 @@ app
 
       const [newStreak] = await db
         .insert(streaksTable)
-        .values({ name: name.trim() })
+        .values({ userId, name: name.trim() })
         .returning()
 
       return { streak: newStreak }
@@ -519,8 +655,11 @@ app
   })
   .post(
     '/groups/:groupId/streaks',
-    async ({ params: { groupId }, body, error }) => {
+    async ({ params: { groupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { streakId, sortOrder } = body as {
           streakId: number
@@ -534,7 +673,9 @@ app
         const streak = await db
           .select()
           .from(streaksTable)
-          .where(eq(streaksTable.id, streakId))
+          .where(
+            and(eq(streaksTable.id, streakId), eq(streaksTable.userId, userId)),
+          )
           .limit(1)
 
         if (streak.length === 0) {
@@ -544,7 +685,9 @@ app
         const group = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, groupIdNum))
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
           .limit(1)
 
         if (group.length === 0) {
@@ -558,6 +701,7 @@ app
             and(
               eq(streakGroupsTable.groupId, groupIdNum),
               eq(streakGroupsTable.streakId, streakId),
+              eq(streakGroupsTable.userId, userId),
             ),
           )
           .limit(1)
@@ -568,11 +712,7 @@ app
 
         const [newStreakGroup] = await db
           .insert(streakGroupsTable)
-          .values({
-            groupId: groupIdNum,
-            streakId,
-            sortOrder,
-          })
+          .values({ userId, groupId: groupIdNum, streakId, sortOrder })
           .returning()
 
         return { streakGroup: newStreakGroup }
@@ -585,8 +725,11 @@ app
 
 app.delete(
   '/groups/:groupId/streaks/:streakId',
-  async ({ params: { groupId, streakId }, error }) => {
+  async ({ params: { groupId, streakId }, error, request }) => {
     try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const groupIdNum = parseInt(groupId)
       const streakIdNum = parseInt(streakId)
 
@@ -600,6 +743,7 @@ app.delete(
           and(
             eq(streakGroupsTable.groupId, groupIdNum),
             eq(streakGroupsTable.streakId, streakIdNum),
+            eq(streakGroupsTable.userId, userId),
           ),
         )
         .returning()
@@ -618,8 +762,11 @@ app.delete(
 
 app.put(
   '/groups/:groupId/streaks/reorder',
-  async ({ params: { groupId }, body, error }) => {
+  async ({ params: { groupId }, body, error, request }) => {
     try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const groupIdNum = parseInt(groupId)
       const { streaks } = body as {
         streaks: { streakId: number; sortOrder: number }[]
@@ -637,6 +784,7 @@ app.put(
             and(
               eq(streakGroupsTable.groupId, groupIdNum),
               eq(streakGroupsTable.streakId, streak.streakId),
+              eq(streakGroupsTable.userId, userId),
             ),
           )
       }
@@ -650,8 +798,11 @@ app.put(
 )
 
 app
-  .post('/groups', async ({ body, error }) => {
+  .post('/groups', async ({ body, error, request }) => {
     try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const { name, type } = body as { name: string; type: 'streaks' | 'tasks' }
 
       if (!name || name.trim().length === 0) {
@@ -668,7 +819,12 @@ app
       const existingGroup = await db
         .select()
         .from(groupsTable)
-        .where(eq(groupsTable.name, name.trim()))
+        .where(
+          and(
+            eq(groupsTable.name, name.trim()),
+            eq(groupsTable.userId, userId),
+          ),
+        )
         .limit(1)
 
       if (existingGroup.length > 0) {
@@ -678,6 +834,7 @@ app
       const lastGroup = await db
         .select({ maxSortOrder: groupsTable.sortOrder })
         .from(groupsTable)
+        .where(eq(groupsTable.userId, userId))
         .orderBy(desc(groupsTable.sortOrder))
         .limit(1)
 
@@ -687,6 +844,7 @@ app
       const [newGroup] = await db
         .insert(groupsTable)
         .values({
+          userId,
           name: name.trim(),
           type: type,
           sortOrder: newSortOrder,
@@ -699,78 +857,107 @@ app
       return error(500, { message: 'Internal server error' })
     }
   })
-  .delete('/groups/:groupId', async ({ params: { groupId }, error }) => {
+  .delete(
+    '/groups/:groupId',
+    async ({ params: { groupId }, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const groupIdNum = parseInt(groupId)
+
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
+
+        await db
+          .delete(streakGroupsTable)
+          .where(
+            and(
+              eq(streakGroupsTable.groupId, groupIdNum),
+              eq(streakGroupsTable.userId, userId),
+            ),
+          )
+
+        const deletedGroup = await db
+          .delete(groupsTable)
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
+          .returning()
+
+        if (deletedGroup.length === 0) {
+          return error(404, { message: 'Group not found' })
+        }
+
+        return { message: 'Group deleted successfully', group: deletedGroup[0] }
+      } catch (err) {
+        console.error('Error deleting group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .put(
+    '/groups/:groupId',
+    async ({ params: { groupId }, body, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const groupIdNum = parseInt(groupId)
+        const { name } = body as { name: string }
+
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
+
+        if (!name || name.trim().length === 0) {
+          return error(400, { message: 'Group name is required' })
+        }
+
+        const existingGroup = await db
+          .select()
+          .from(groupsTable)
+          .where(
+            and(
+              eq(groupsTable.name, name.trim()),
+              eq(groupsTable.userId, userId),
+            ),
+          )
+          .limit(1)
+
+        if (existingGroup.length > 0 && existingGroup[0].id !== groupIdNum) {
+          return error(409, { message: 'Group with this name already exists' })
+        }
+
+        if (existingGroup.length > 0) {
+          return error(409, { message: 'Group with this name already exists' })
+        }
+
+        const [updatedGroup] = await db
+          .update(groupsTable)
+          .set({ name: name.trim() })
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
+          .returning()
+
+        if (!updatedGroup) {
+          return error(404, { message: 'Group not found' })
+        }
+
+        return { group: updatedGroup }
+      } catch (err) {
+        console.error('Error updating group:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
+  .put('/groups/reorder', async ({ body, error, request }) => {
     try {
-      const groupIdNum = parseInt(groupId)
-
-      if (Number.isNaN(groupIdNum)) {
-        return error(400, { message: 'Invalid group ID' })
-      }
-
-      await db
-        .delete(streakGroupsTable)
-        .where(eq(streakGroupsTable.groupId, groupIdNum))
-
-      const deletedGroup = await db
-        .delete(groupsTable)
-        .where(eq(groupsTable.id, groupIdNum))
-        .returning()
-
-      if (deletedGroup.length === 0) {
-        return error(404, { message: 'Group not found' })
-      }
-
-      return { message: 'Group deleted successfully', group: deletedGroup[0] }
-    } catch (err) {
-      console.error('Error deleting group:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
-  .put('/groups/:groupId', async ({ params: { groupId }, body, error }) => {
-    try {
-      const groupIdNum = parseInt(groupId)
-      const { name } = body as { name: string }
-
-      if (Number.isNaN(groupIdNum)) {
-        return error(400, { message: 'Invalid group ID' })
-      }
-
-      if (!name || name.trim().length === 0) {
-        return error(400, { message: 'Group name is required' })
-      }
-
-      const existingGroup = await db
-        .select()
-        .from(groupsTable)
-        .where(eq(groupsTable.name, name.trim()))
-        .limit(1)
-
-      if (existingGroup.length > 0 && existingGroup[0].id !== groupIdNum) {
-        return error(409, { message: 'Group with this name already exists' })
-      }
-
-      if (existingGroup.length > 0) {
-        return error(409, { message: 'Group with this name already exists' })
-      }
-
-      const [updatedGroup] = await db
-        .update(groupsTable)
-        .set({ name: name.trim() })
-        .where(eq(groupsTable.id, groupIdNum))
-        .returning()
-
-      if (!updatedGroup) {
-        return error(404, { message: 'Group not found' })
-      }
-
-      return { group: updatedGroup }
-    } catch (err) {
-      console.error('Error updating group:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
-  .put('/groups/reorder', async ({ body, error }) => {
-    try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const { groups } = body as {
         groups: { groupId: number; sortOrder: number }[]
       }
@@ -783,7 +970,12 @@ app
         await db
           .update(groupsTable)
           .set({ sortOrder: group.sortOrder })
-          .where(eq(groupsTable.id, group.groupId))
+          .where(
+            and(
+              eq(groupsTable.id, group.groupId),
+              eq(groupsTable.userId, userId),
+            ),
+          )
       }
 
       return { message: 'Group order updated successfully' }
@@ -792,111 +984,130 @@ app
       return error(500, { message: 'Internal server error' })
     }
   })
-  .post('/tasks/:taskId/log', async ({ params: { taskId }, body, error }) => {
-    try {
-      const taskIdNum = parseInt(taskId)
-      const { date, done } = body as { date: string; done: boolean }
+  .post(
+    '/tasks/:taskId/log',
+    async ({ params: { taskId }, body, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const taskIdNum = parseInt(taskId)
+        const { date, done } = body as { date: string; done: boolean }
 
-      if (Number.isNaN(taskIdNum)) {
-        return error(400, { message: 'Invalid task ID' })
-      }
-      if (!date || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) {
-        return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
-      }
-      if (typeof done !== 'boolean') {
-        return error(400, { message: 'Missing or invalid done parameter' })
-      }
+        if (Number.isNaN(taskIdNum)) {
+          return error(400, { message: 'Invalid task ID' })
+        }
+        if (!date || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) {
+          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        }
+        if (typeof done !== 'boolean') {
+          return error(400, { message: 'Missing or invalid done parameter' })
+        }
 
-      const task = await db
-        .select()
-        .from(tasksTable)
-        .where(eq(tasksTable.id, taskIdNum))
-        .limit(1)
-
-      if (task.length === 0) {
-        return error(404, { message: 'Task not found' })
-      }
-
-      const existingLog = await db
-        .select()
-        .from(taskLogTable)
-        .where(
-          and(eq(taskLogTable.taskId, taskIdNum), eq(taskLogTable.date, date)),
-        )
-        .limit(1)
-
-      let log: typeof taskLogTable.$inferSelect
-      if (existingLog.length > 0) {
-        // Get the highest sortOrder for this date and done status (across all tasks)
-        const lastSortOrder = await db
-          .select({ maxSortOrder: taskLogTable.sortOrder })
-          .from(taskLogTable)
-          .where(and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)))
-          .orderBy(desc(taskLogTable.sortOrder))
+        const task = await db
+          .select()
+          .from(tasksTable)
+          .where(
+            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
+          )
           .limit(1)
 
-        const newSortOrder =
-          lastSortOrder.length > 0
-            ? (lastSortOrder[0].maxSortOrder || 0) + 1
-            : 1
+        if (task.length === 0) {
+          return error(404, { message: 'Task not found' })
+        }
 
-        // Set done status and update sortOrder to place at end of new list
-        const [updatedLog] = await db
-          .update(taskLogTable)
-          .set({ done, sortOrder: newSortOrder })
+        const existingLog = await db
+          .select()
+          .from(taskLogTable)
           .where(
             and(
               eq(taskLogTable.taskId, taskIdNum),
               eq(taskLogTable.date, date),
             ),
           )
-          .returning()
-        log = updatedLog
-      } else {
-        // Get the highest sortOrder for this date and done status (across all tasks)
-        const lastSortOrder = await db
-          .select({ maxSortOrder: taskLogTable.sortOrder })
-          .from(taskLogTable)
-          .where(and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)))
-          .orderBy(desc(taskLogTable.sortOrder))
           .limit(1)
 
-        const newSortOrder =
-          lastSortOrder.length > 0
-            ? (lastSortOrder[0].maxSortOrder || 0) + 1
-            : 1
+        let log: typeof taskLogTable.$inferSelect
+        if (existingLog.length > 0) {
+          // Get the highest sortOrder for this date and done status (across all tasks)
+          const lastSortOrder = await db
+            .select({ maxSortOrder: taskLogTable.sortOrder })
+            .from(taskLogTable)
+            .where(
+              and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)),
+            )
+            .orderBy(desc(taskLogTable.sortOrder))
+            .limit(1)
 
-        const [newLog] = await db
-          .insert(taskLogTable)
-          .values({
-            taskId: taskIdNum,
-            date,
-            done,
-            sortOrder: newSortOrder,
-          })
-          .returning()
-        log = newLog
-      }
+          const newSortOrder =
+            lastSortOrder.length > 0
+              ? (lastSortOrder[0].maxSortOrder || 0) + 1
+              : 1
 
-      // Mirror to streak if linked
-      if (task[0].streakId != null) {
-        if (done === true) {
-          await ensureStreakDoneForDate(task[0].streakId, date)
+          // Set done status and update sortOrder to place at end of new list
+          const [updatedLog] = await db
+            .update(taskLogTable)
+            .set({ done, sortOrder: newSortOrder })
+            .where(
+              and(
+                eq(taskLogTable.taskId, taskIdNum),
+                eq(taskLogTable.date, date),
+              ),
+            )
+            .returning()
+          log = updatedLog
         } else {
-          await ensureStreakUndoneForDate(task[0].streakId, date)
-        }
-      }
+          // Get the highest sortOrder for this date and done status (across all tasks)
+          const lastSortOrder = await db
+            .select({ maxSortOrder: taskLogTable.sortOrder })
+            .from(taskLogTable)
+            .where(
+              and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)),
+            )
+            .orderBy(desc(taskLogTable.sortOrder))
+            .limit(1)
 
-      return { log }
-    } catch (err) {
-      console.error('Error setting task log:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
+          const newSortOrder =
+            lastSortOrder.length > 0
+              ? (lastSortOrder[0].maxSortOrder || 0) + 1
+              : 1
+
+          const [newLog] = await db
+            .insert(taskLogTable)
+            .values({
+              userId,
+              taskId: taskIdNum,
+              date,
+              done,
+              sortOrder: newSortOrder,
+            })
+            .returning()
+          log = newLog
+        }
+
+        // Mirror to streak if linked
+        if (task[0].streakId != null) {
+          if (done === true) {
+            await ensureStreakDoneForDate(task[0].streakId, date, userId)
+          } else {
+            await ensureStreakUndoneForDate(task[0].streakId, date, userId)
+          }
+        }
+
+        return { log }
+      } catch (err) {
+        console.error('Error setting task log:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
   .put(
     '/tasks/:taskId/:date/note',
-    async ({ params: { taskId, date }, body, error }) => {
+    async ({ params: { taskId, date }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const taskIdNum = parseInt(taskId)
         const { extraInfo } = body as { extraInfo: string }
 
@@ -911,7 +1122,9 @@ app
         const task = await db
           .select()
           .from(tasksTable)
-          .where(eq(tasksTable.id, taskIdNum))
+          .where(
+            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
+          )
           .limit(1)
 
         if (task.length === 0) {
@@ -964,6 +1177,7 @@ app
           const [newLog] = await db
             .insert(taskLogTable)
             .values({
+              userId,
               taskId: taskIdNum,
               date,
               extraInfo: extraInfo || null,
@@ -975,7 +1189,7 @@ app
 
           // Newly creating a done log for a task that's linked to a streak → mirror into streak_log
           if (task[0].streakId != null) {
-            await ensureStreakDoneForDate(task[0].streakId, date)
+            await ensureStreakDoneForDate(task[0].streakId, date, userId)
           }
         }
 
@@ -988,8 +1202,11 @@ app
   )
   .put(
     '/groups/:groupId/:date/note',
-    async ({ params: { groupId, date }, body, error }) => {
+    async ({ params: { groupId, date }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { note } = body as { note: string }
 
@@ -1007,7 +1224,9 @@ app
         const group = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, groupIdNum))
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
           .limit(1)
         if (group.length === 0) {
           return error(404, { message: 'Group not found' })
@@ -1043,7 +1262,7 @@ app
           // Insert
           const [inserted] = await db
             .insert(groupNotesTable)
-            .values({ groupId: groupIdNum, date, note })
+            .values({ userId, groupId: groupIdNum, date, note })
             .returning()
           result = inserted
         }
@@ -1056,8 +1275,11 @@ app
   )
   .post(
     '/groups/:groupId/tasks',
-    async ({ params: { groupId }, body, error }) => {
+    async ({ params: { groupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { task, defaultExtraInfo } = body as {
           task: string
@@ -1075,7 +1297,9 @@ app
         const group = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, groupIdNum))
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
           .limit(1)
         if (group.length === 0) {
           return error(404, { message: 'Group not found' })
@@ -1099,6 +1323,7 @@ app
         const [newTask] = await db
           .insert(tasksTable)
           .values({
+            userId,
             groupId: groupIdNum,
             task: task.trim(),
             defaultExtraInfo: defaultExtraInfo || null,
@@ -1114,8 +1339,11 @@ app
   )
   .delete(
     '/tasks/:taskId/:date/log',
-    async ({ params: { taskId, date }, error }) => {
+    async ({ params: { taskId, date }, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const taskIdNum = parseInt(taskId)
 
         if (Number.isNaN(taskIdNum)) {
@@ -1129,7 +1357,9 @@ app
         const task = await db
           .select()
           .from(tasksTable)
-          .where(eq(tasksTable.id, taskIdNum))
+          .where(
+            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
+          )
           .limit(1)
 
         if (task.length === 0) {
@@ -1152,7 +1382,7 @@ app
 
         // If the deleted log was done and this task is linked to a streak, mark the streak as undone for that date
         if (deletedLog[0]?.done === true && task[0]?.streakId != null) {
-          await ensureStreakUndoneForDate(task[0].streakId, date)
+          await ensureStreakUndoneForDate(task[0].streakId, date, userId)
         }
 
         // Check if there are any remaining logs for this task
@@ -1178,8 +1408,11 @@ app
       }
     },
   )
-  .put('/tasks/reorder', async ({ body, error }) => {
+  .put('/tasks/reorder', async ({ body, error, request }) => {
     try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return error(401, { message: 'Unauthorized' })
+      const userId = session.user.id
       const { date, taskLogs } = body as {
         date: string
         taskLogs: { taskId: number; sortOrder: number }[]
@@ -1202,6 +1435,7 @@ app
             and(
               eq(taskLogTable.taskId, logTaskId),
               eq(taskLogTable.date, date),
+              eq(taskLogTable.userId, userId),
             ),
           )
       }
@@ -1214,8 +1448,11 @@ app
   })
   .post(
     '/groups/:groupId/pin-groups',
-    async ({ params: { groupId }, body, error }) => {
+    async ({ params: { groupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { name } = body as { name: string }
 
@@ -1228,7 +1465,9 @@ app
         const parent = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, groupIdNum))
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
           .limit(1)
         if (parent.length === 0)
           return error(404, { message: 'Parent group not found' })
@@ -1245,6 +1484,7 @@ app
             and(
               eq(groupsTable.group_id, groupIdNum),
               eq(groupsTable.type, 'pins'),
+              eq(groupsTable.userId, userId),
             ),
           )
           .orderBy(desc(groupsTable.sortOrder))
@@ -1255,6 +1495,7 @@ app
         const [pinGroup] = await db
           .insert(groupsTable)
           .values({
+            userId,
             name: name.trim(),
             type: 'pins' as const,
             group_id: groupIdNum,
@@ -1271,8 +1512,11 @@ app
   )
   .post(
     '/pin-groups/:pinGroupId/tasks',
-    async ({ params: { pinGroupId }, body, error }) => {
+    async ({ params: { pinGroupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const { taskId, sortOrder } = body as {
           taskId: number
@@ -1287,7 +1531,12 @@ app
         const pinGroup = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, pinGroupIdNum))
+          .where(
+            and(
+              eq(groupsTable.id, pinGroupIdNum),
+              eq(groupsTable.userId, userId),
+            ),
+          )
           .limit(1)
         if (pinGroup.length === 0)
           return error(404, { message: 'Pin group not found' })
@@ -1297,7 +1546,7 @@ app
         const task = await db
           .select()
           .from(tasksTable)
-          .where(eq(tasksTable.id, taskId))
+          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)))
           .limit(1)
         if (task.length === 0) return error(404, { message: 'Task not found' })
 
@@ -1308,6 +1557,7 @@ app
             and(
               eq(groupPinsTable.groupId, pinGroupIdNum),
               eq(groupPinsTable.taskId, taskId),
+              eq(groupPinsTable.userId, userId),
             ),
           )
           .limit(1)
@@ -1319,7 +1569,12 @@ app
           const last = await db
             .select({ maxSortOrder: groupPinsTable.sortOrder })
             .from(groupPinsTable)
-            .where(eq(groupPinsTable.groupId, pinGroupIdNum))
+            .where(
+              and(
+                eq(groupPinsTable.groupId, pinGroupIdNum),
+                eq(groupPinsTable.userId, userId),
+              ),
+            )
             .orderBy(desc(groupPinsTable.sortOrder))
             .limit(1)
           finalSortOrder = last.length > 0 ? (last[0].maxSortOrder || 0) + 1 : 0
@@ -1327,7 +1582,12 @@ app
 
         const [pin] = await db
           .insert(groupPinsTable)
-          .values({ groupId: pinGroupIdNum, taskId, sortOrder: finalSortOrder })
+          .values({
+            userId,
+            groupId: pinGroupIdNum,
+            taskId,
+            sortOrder: finalSortOrder,
+          })
           .returning()
         return { pin }
       } catch (err) {
@@ -1338,8 +1598,11 @@ app
   )
   .delete(
     '/pin-groups/:pinGroupId/tasks/:taskId',
-    async ({ params: { pinGroupId, taskId }, error }) => {
+    async ({ params: { pinGroupId, taskId }, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const taskIdNum = parseInt(taskId)
         if (Number.isNaN(pinGroupIdNum) || Number.isNaN(taskIdNum))
@@ -1351,6 +1614,7 @@ app
             and(
               eq(groupPinsTable.groupId, pinGroupIdNum),
               eq(groupPinsTable.taskId, taskIdNum),
+              eq(groupPinsTable.userId, userId),
             ),
           )
           .returning()
@@ -1365,8 +1629,11 @@ app
   )
   .put(
     '/pin-groups/:pinGroupId/tasks/reorder',
-    async ({ params: { pinGroupId }, body, error }) => {
+    async ({ params: { pinGroupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const { items } = body as {
           items: { taskId: number; sortOrder: number }[]
@@ -1384,6 +1651,7 @@ app
               and(
                 eq(groupPinsTable.groupId, pinGroupIdNum),
                 eq(groupPinsTable.taskId, it.taskId),
+                eq(groupPinsTable.userId, userId),
               ),
             )
         }
@@ -1398,8 +1666,11 @@ app
   // Rename a pin group
   .put(
     '/pin-groups/:pinGroupId',
-    async ({ params: { pinGroupId }, body, error }) => {
+    async ({ params: { pinGroupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const { name } = body as { name: string }
 
@@ -1412,7 +1683,12 @@ app
         const existing = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, pinGroupIdNum))
+          .where(
+            and(
+              eq(groupsTable.id, pinGroupIdNum),
+              eq(groupsTable.userId, userId),
+            ),
+          )
           .limit(1)
         if (existing.length === 0)
           return error(404, { message: 'Pin group not found' })
@@ -1429,6 +1705,7 @@ app
                 eq(groupsTable.group_id, existing[0].group_id),
                 eq(groupsTable.type, 'pins'),
                 eq(groupsTable.name, name.trim()),
+                eq(groupsTable.userId, userId),
               ),
             )
             .limit(1)
@@ -1442,7 +1719,12 @@ app
         const [updated] = await db
           .update(groupsTable)
           .set({ name: name.trim() })
-          .where(eq(groupsTable.id, pinGroupIdNum))
+          .where(
+            and(
+              eq(groupsTable.id, pinGroupIdNum),
+              eq(groupsTable.userId, userId),
+            ),
+          )
           .returning()
 
         return { group: updated }
@@ -1456,8 +1738,11 @@ app
   // Delete a pin group (and its pins)
   .delete(
     '/pin-groups/:pinGroupId',
-    async ({ params: { pinGroupId }, error }) => {
+    async ({ params: { pinGroupId }, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         if (Number.isNaN(pinGroupIdNum))
           return error(400, { message: 'Invalid pin group ID' })
@@ -1466,7 +1751,12 @@ app
         const existing = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, pinGroupIdNum))
+          .where(
+            and(
+              eq(groupsTable.id, pinGroupIdNum),
+              eq(groupsTable.userId, userId),
+            ),
+          )
           .limit(1)
         if (existing.length === 0)
           return error(404, { message: 'Pin group not found' })
@@ -1475,10 +1765,20 @@ app
 
         await db
           .delete(groupPinsTable)
-          .where(eq(groupPinsTable.groupId, pinGroupIdNum))
+          .where(
+            and(
+              eq(groupPinsTable.groupId, pinGroupIdNum),
+              eq(groupPinsTable.userId, userId),
+            ),
+          )
         const [deleted] = await db
           .delete(groupsTable)
-          .where(eq(groupsTable.id, pinGroupIdNum))
+          .where(
+            and(
+              eq(groupsTable.id, pinGroupIdNum),
+              eq(groupsTable.userId, userId),
+            ),
+          )
           .returning()
 
         return { message: 'Pin group deleted', group: deleted }
@@ -1491,8 +1791,11 @@ app
 
   .put(
     '/groups/:groupId/pin-groups/reorder',
-    async ({ params: { groupId }, body, error }) => {
+    async ({ params: { groupId }, body, error, request }) => {
       try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { items } = body as {
           items: { pinGroupId: number; sortOrder: number }[]
@@ -1507,7 +1810,9 @@ app
         const parent = await db
           .select()
           .from(groupsTable)
-          .where(eq(groupsTable.id, groupIdNum))
+          .where(
+            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
+          )
           .limit(1)
         if (parent.length === 0)
           return error(404, { message: 'Parent group not found' })
@@ -1523,6 +1828,7 @@ app
                 eq(groupsTable.id, it.pinGroupId),
                 eq(groupsTable.group_id, groupIdNum),
                 eq(groupsTable.type, 'pins'),
+                eq(groupsTable.userId, userId),
               ),
             )
         }
@@ -1535,89 +1841,100 @@ app
   )
 
   // Update a task's core fields (name, defaultExtraInfo)
-  .put('/tasks/:taskId', async ({ params: { taskId }, body, error }) => {
-    try {
-      const taskIdNum = parseInt(taskId)
-      if (Number.isNaN(taskIdNum)) {
-        return error(400, { message: 'Invalid task ID' })
-      }
-
-      const { task, defaultExtraInfo, streakId } = body as {
-        task?: string
-        defaultExtraInfo?: string | null
-        streakId?: number | null
-      }
-
-      if (
-        (task === undefined || task === null) &&
-        defaultExtraInfo === undefined &&
-        streakId === undefined
-      ) {
-        return error(400, { message: 'No fields to update' })
-      }
-
-      // Fetch existing task
-      const existing = await db
-        .select()
-        .from(tasksTable)
-        .where(eq(tasksTable.id, taskIdNum))
-        .limit(1)
-
-      if (existing.length === 0) {
-        return error(404, { message: 'Task not found' })
-      }
-
-      const updates: Partial<typeof tasksTable.$inferInsert> = {}
-
-      if (task !== undefined) {
-        const trimmed = (task ?? '').trim()
-        if (trimmed.length === 0) {
-          return error(400, { message: 'Task name cannot be empty' })
+  .put(
+    '/tasks/:taskId',
+    async ({ params: { taskId }, body, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const taskIdNum = parseInt(taskId)
+        if (Number.isNaN(taskIdNum)) {
+          return error(400, { message: 'Invalid task ID' })
         }
 
-        // Prevent duplicate task names within the same group
-        const dup = await db
+        const { task, defaultExtraInfo, streakId } = body as {
+          task?: string
+          defaultExtraInfo?: string | null
+          streakId?: number | null
+        }
+
+        if (
+          (task === undefined || task === null) &&
+          defaultExtraInfo === undefined &&
+          streakId === undefined
+        ) {
+          return error(400, { message: 'No fields to update' })
+        }
+
+        // Fetch existing task
+        const existing = await db
           .select()
           .from(tasksTable)
           .where(
-            and(
-              eq(tasksTable.groupId, existing[0].groupId),
-              eq(tasksTable.task, trimmed),
-            ),
+            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
           )
           .limit(1)
 
-        if (dup.length > 0 && dup[0].id !== taskIdNum) {
-          return error(409, {
-            message: 'Task with this name already exists in the group',
-          })
+        if (existing.length === 0) {
+          return error(404, { message: 'Task not found' })
         }
 
-        updates.task = trimmed
+        const updates: Partial<typeof tasksTable.$inferInsert> = {}
+
+        if (task !== undefined) {
+          const trimmed = (task ?? '').trim()
+          if (trimmed.length === 0) {
+            return error(400, { message: 'Task name cannot be empty' })
+          }
+
+          // Prevent duplicate task names within the same group
+          const dup = await db
+            .select()
+            .from(tasksTable)
+            .where(
+              and(
+                eq(tasksTable.groupId, existing[0].groupId),
+                eq(tasksTable.task, trimmed),
+                eq(tasksTable.userId, userId),
+              ),
+            )
+            .limit(1)
+
+          if (dup.length > 0 && dup[0].id !== taskIdNum) {
+            return error(409, {
+              message: 'Task with this name already exists in the group',
+            })
+          }
+
+          updates.task = trimmed
+        }
+
+        if (defaultExtraInfo !== undefined) {
+          const val = defaultExtraInfo
+          updates.defaultExtraInfo =
+            val === null || `${val}`.trim() === '' ? null : `${val}`
+        }
+
+        if (streakId !== undefined) {
+          updates.streakId = streakId === null ? null : streakId
+        }
+
+        const [updated] = await db
+          .update(tasksTable)
+          .set(updates)
+          .where(
+            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
+          )
+          .returning()
+
+        return { task: updated }
+      } catch (err) {
+        console.error('Error updating task:', err)
+        return error(500, { message: 'Internal server error' })
       }
-
-      if (defaultExtraInfo !== undefined) {
-        const val = defaultExtraInfo
-        updates.defaultExtraInfo =
-          val === null || `${val}`.trim() === '' ? null : `${val}`
-      }
-
-      if (streakId !== undefined) {
-        updates.streakId = streakId === null ? null : streakId
-      }
-
-      const [updated] = await db
-        .update(tasksTable)
-        .set(updates)
-        .where(eq(tasksTable.id, taskIdNum))
-        .returning()
-
-      return { task: updated }
-    } catch (err) {
-      console.error('Error updating task:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  })
+    },
+  )
 
 app.listen(9008)
 

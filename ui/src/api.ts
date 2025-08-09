@@ -1,4 +1,17 @@
-const API_BASE_URL = 'http://localhost:9008'
+import { config } from './config'
+
+const API_BASE_URL = config.apiBaseUrl
+
+// Centralized fetch helper to ensure authentication (cookies) are sent.
+// Always uses credentials: 'include' for cross-origin session cookie.
+const apiFetch = (path: string, init?: RequestInit) => {
+  // Allow passing full URL (fallback) but prefer relative API paths.
+  const url =
+    path.startsWith('http://') || path.startsWith('https://')
+      ? path
+      : `${API_BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`
+  return fetch(url, { credentials: 'include', ...(init || {}) })
+}
 
 export interface ApiStreakLog {
   id: number
@@ -117,7 +130,7 @@ export interface TaskGroup {
 export const fetchGroups = async (
   type: 'streaks' | 'tasks',
 ): Promise<ApiGroup[]> => {
-  const response = await fetch(`${API_BASE_URL}/groups?type=${type}`)
+  const response = await apiFetch(`/groups?type=${type}`)
   if (!response.ok) throw new Error('Failed to fetch groups')
   const data: ApiGroupsResponse = await response.json()
   return data.groups
@@ -127,7 +140,7 @@ export const fetchGroupStreaks = async (
   groupId: number,
 ): Promise<StreakGroup | null> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/streak-groups/${groupId}`)
+    const response = await apiFetch(`/streak-groups/${groupId}`)
     if (!response.ok)
       throw new Error(`Failed to fetch streaks for group ${groupId}`)
     const data: ApiStreakGroupResponse = await response.json()
@@ -162,7 +175,7 @@ export const fetchGroupTasks = async (
   groupId: number,
 ): Promise<TaskGroup | null> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/task-groups/${groupId}`)
+    const response = await apiFetch(`/task-groups/${groupId}`)
     if (!response.ok)
       throw new Error(`Failed to fetch tasks for group ${groupId}`)
     const data: ApiTaskGroupResponse = await response.json()
@@ -201,14 +214,11 @@ export const createPinGroup = async (
   sortOrder: number
   group_id: number
 }> => {
-  const response = await fetch(
-    `${API_BASE_URL}/groups/${parentGroupId}/pin-groups`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    },
-  )
+  const response = await apiFetch(`/groups/${parentGroupId}/pin-groups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
   if (!response.ok) {
     let message = 'Failed to create pin group'
     try {
@@ -227,14 +237,11 @@ export const addTaskToPinGroup = async (
   taskId: number,
   sortOrder?: number,
 ): Promise<void> => {
-  const response = await fetch(
-    `${API_BASE_URL}/pin-groups/${pinGroupId}/tasks`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ taskId, sortOrder }),
-    },
-  )
+  const response = await apiFetch(`/pin-groups/${pinGroupId}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, sortOrder }),
+  })
   if (!response.ok) {
     let message = 'Failed to add task to pin group'
     try {
@@ -250,10 +257,9 @@ export const removeTaskFromPinGroup = async (
   pinGroupId: number,
   taskId: number,
 ): Promise<void> => {
-  const response = await fetch(
-    `${API_BASE_URL}/pin-groups/${pinGroupId}/tasks/${taskId}`,
-    { method: 'DELETE' },
-  )
+  const response = await apiFetch(`/pin-groups/${pinGroupId}/tasks/${taskId}`, {
+    method: 'DELETE',
+  })
   if (!response.ok) {
     let message = 'Failed to remove task from pin group'
     try {
@@ -269,14 +275,11 @@ export const reorderPinGroupTasks = async (
   pinGroupId: number,
   items: { taskId: number; sortOrder: number }[],
 ): Promise<void> => {
-  const response = await fetch(
-    `${API_BASE_URL}/pin-groups/${pinGroupId}/tasks/reorder`,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    },
-  )
+  const response = await apiFetch(`/pin-groups/${pinGroupId}/tasks/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  })
   if (!response.ok) {
     let message = 'Failed to reorder pinned tasks'
     try {
@@ -292,7 +295,7 @@ export const renamePinGroup = async (
   pinGroupId: number,
   name: string,
 ): Promise<{ id: number; name: string }> => {
-  const response = await fetch(`${API_BASE_URL}/pin-groups/${pinGroupId}`, {
+  const response = await apiFetch(`/pin-groups/${pinGroupId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -311,7 +314,7 @@ export const renamePinGroup = async (
 }
 
 export const deletePinGroup = async (pinGroupId: number): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/pin-groups/${pinGroupId}`, {
+  const response = await apiFetch(`/pin-groups/${pinGroupId}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -329,8 +332,8 @@ export const reorderPinGroups = async (
   parentGroupId: number,
   items: { pinGroupId: number; sortOrder: number }[],
 ): Promise<void> => {
-  const response = await fetch(
-    `${API_BASE_URL}/groups/${parentGroupId}/pin-groups/reorder`,
+  const response = await apiFetch(
+    `/groups/${parentGroupId}/pin-groups/reorder`,
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -352,7 +355,7 @@ export const toggleStreakLog = async (
   streakId: number,
   date: string,
 ): Promise<ApiStreakLog> => {
-  const response = await fetch(`${API_BASE_URL}/streaks/${streakId}/toggle`, {
+  const response = await apiFetch(`/streaks/${streakId}/toggle`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -386,7 +389,7 @@ export const setTaskLog = async (
   date: string,
   done: boolean,
 ): Promise<ApiTaskLog> => {
-  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/log`, {
+  const response = await apiFetch(`/tasks/${taskId}/log`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -412,18 +415,15 @@ export const updateStreakLogNote = async (
   date: string,
   note: string,
 ): Promise<ApiStreakLog> => {
-  const response = await fetch(
-    `${API_BASE_URL}/streaks/${streakId}/${date}/note`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        note,
-      }),
+  const response = await apiFetch(`/streaks/${streakId}/${date}/note`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify({
+      note,
+    }),
+  })
 
   if (!response.ok) {
     const errorData = await response.json()
@@ -440,7 +440,7 @@ export const updateTaskLogNote = async (
   date: string,
   extraInfo: string,
 ): Promise<ApiTaskLog> => {
-  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/${date}/note`, {
+  const response = await apiFetch(`/tasks/${taskId}/${date}/note`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -464,7 +464,7 @@ export const deleteTaskLog = async (
   taskId: number,
   date: string,
 ): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/${date}/log`, {
+  const response = await apiFetch(`/tasks/${taskId}/${date}/log`, {
     method: 'DELETE',
   })
 
@@ -476,7 +476,7 @@ export const deleteTaskLog = async (
 }
 
 export const fetchAllStreaks = async (): Promise<ApiStreak[]> => {
-  const response = await fetch(`${API_BASE_URL}/streaks`)
+  const response = await apiFetch(`/streaks`)
   if (!response.ok) throw new Error('Failed to fetch all streaks')
   const data = await response.json()
   return data.streaks
@@ -487,7 +487,7 @@ export const addStreakToGroup = async (
   streakId: number,
   sortOrder: number,
 ): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/groups/${groupId}/streaks`, {
+  const response = await apiFetch(`/groups/${groupId}/streaks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -509,12 +509,9 @@ export const removeStreakFromGroup = async (
   groupId: number,
   streakId: number,
 ): Promise<void> => {
-  const response = await fetch(
-    `${API_BASE_URL}/groups/${groupId}/streaks/${streakId}`,
-    {
-      method: 'DELETE',
-    },
-  )
+  const response = await apiFetch(`/groups/${groupId}/streaks/${streakId}`, {
+    method: 'DELETE',
+  })
 
   if (!response.ok) {
     const errorData = await response.json()
@@ -527,18 +524,15 @@ export const updateStreakOrder = async (
   groupId: number,
   streakUpdates: { streakId: number; sortOrder: number }[],
 ): Promise<void> => {
-  const response = await fetch(
-    `${API_BASE_URL}/groups/${groupId}/streaks/reorder`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        streaks: streakUpdates,
-      }),
+  const response = await apiFetch(`/groups/${groupId}/streaks/reorder`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
     },
-  )
+    body: JSON.stringify({
+      streaks: streakUpdates,
+    }),
+  })
 
   if (!response.ok) {
     const errorData = await response.json()
@@ -548,7 +542,7 @@ export const updateStreakOrder = async (
 }
 
 export const createStreak = async (name: string): Promise<ApiStreak> => {
-  const response = await fetch(`${API_BASE_URL}/streaks`, {
+  const response = await apiFetch(`/streaks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -570,7 +564,7 @@ export const createGroup = async (
   name: string,
   type: 'streaks' | 'tasks',
 ): Promise<ApiGroup> => {
-  const response = await fetch(`${API_BASE_URL}/groups`, {
+  const response = await apiFetch(`/groups`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -589,7 +583,7 @@ export const createGroup = async (
 }
 
 export const deleteGroup = async (groupId: number): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/groups/${groupId}`, {
+  const response = await apiFetch(`/groups/${groupId}`, {
     method: 'DELETE',
   })
 
@@ -604,7 +598,7 @@ export const updateGroup = async (
   groupId: number,
   name: string,
 ): Promise<ApiGroup> => {
-  const response = await fetch(`${API_BASE_URL}/groups/${groupId}`, {
+  const response = await apiFetch(`/groups/${groupId}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -625,7 +619,7 @@ export const updateGroup = async (
 export const updateGroupOrder = async (
   groupUpdates: { groupId: number; sortOrder: number }[],
 ): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/groups/reorder`, {
+  const response = await apiFetch(`/groups/reorder`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -649,14 +643,11 @@ export const updateGroupNote = async (
 ): Promise<{
   note: { id: number; date: string; groupId: number; note: string }
 }> => {
-  const response = await fetch(
-    `${API_BASE_URL}/groups/${groupId}/${date}/note`,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ note }),
-    },
-  )
+  const response = await apiFetch(`/groups/${groupId}/${date}/note`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  })
   if (!response.ok) {
     const errorData = await response.json()
     console.error('Failed to update group note:', errorData)
@@ -670,7 +661,7 @@ export const createTaskForGroup = async (
   task: string,
   defaultExtraInfo?: string,
 ): Promise<ApiTask> => {
-  const response = await fetch(`${API_BASE_URL}/groups/${groupId}/tasks`, {
+  const response = await apiFetch(`/groups/${groupId}/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ task, defaultExtraInfo }),
@@ -688,7 +679,7 @@ export const updateTaskLogsOrder = async (
   date: string,
   taskLogs: { taskId: number; sortOrder: number }[],
 ): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/tasks/reorder`, {
+  const response = await apiFetch(`/tasks/reorder`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -714,7 +705,7 @@ export const updateTask = async (
     streakId?: number | null
   },
 ): Promise<ApiTask> => {
-  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+  const response = await apiFetch(`/tasks/${taskId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fields),

@@ -9,11 +9,15 @@ import {
   timestamp,
   varchar,
 } from 'drizzle-orm/pg-core'
+import { usersTable } from './auth-schema'
 
 export const groupTypeEnum = pgEnum('group_type', ['streaks', 'tasks', 'pins'])
 
 export const streaksTable = pgTable('streaks', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   name: varchar({ length: 255 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -21,6 +25,9 @@ export const streaksTable = pgTable('streaks', {
 
 export const streakLogTable = pgTable('streak_log', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   date: date().notNull(),
   streakId: integer('streak_id')
     .references(() => streaksTable.id)
@@ -33,6 +40,9 @@ export const streakLogTable = pgTable('streak_log', {
 
 export const groupsTable = pgTable('groups', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   group_id: integer('group_id').references((): AnyPgColumn => groupsTable.id),
   name: varchar({ length: 255 }).notNull(),
   type: groupTypeEnum().notNull(),
@@ -43,6 +53,9 @@ export const groupsTable = pgTable('groups', {
 
 export const streakGroupsTable = pgTable('streak_groups', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   groupId: integer('group_id')
     .references(() => groupsTable.id)
     .notNull(),
@@ -56,6 +69,9 @@ export const streakGroupsTable = pgTable('streak_groups', {
 
 export const tasksTable = pgTable('tasks', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   groupId: integer('group_id')
     .references(() => groupsTable.id)
     .notNull(),
@@ -68,6 +84,9 @@ export const tasksTable = pgTable('tasks', {
 
 export const taskLogTable = pgTable('task_log', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   date: date().notNull(),
   taskId: integer('task_id')
     .references(() => tasksTable.id)
@@ -81,6 +100,9 @@ export const taskLogTable = pgTable('task_log', {
 
 export const groupNotesTable = pgTable('group_notes', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   date: date().notNull(),
   groupId: integer('group_id')
     .references(() => groupsTable.id)
@@ -92,6 +114,9 @@ export const groupNotesTable = pgTable('group_notes', {
 
 export const groupPinsTable = pgTable('group_pins', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
   groupId: integer('group_id')
     .references(() => groupsTable.id)
     .notNull(),
