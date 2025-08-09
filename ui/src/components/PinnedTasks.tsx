@@ -333,8 +333,19 @@ export default function PinnedTasks({
                   {...getInputProps({
                     placeholder: 'Add task to this pinned group…',
                     className: 'pin-input',
+                    // Prevent double firing: if a Downshift item is highlighted, let Downshift's
+                    // own Enter handling trigger onSelect. Only manually add when there's no
+                    // highlighted suggestion (free text enter case).
                     onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
                       if (e.key === 'Enter') {
+                        const hasHighlighted =
+                          isOpen &&
+                          highlightedIndex != null &&
+                          highlightedIndex > -1
+                        if (hasHighlighted) {
+                          // Let Downshift handle selecting the highlighted item.
+                          return
+                        }
                         e.preventDefault()
                         handleAddTask(pg.id, addingTaskInput[pg.id] || '')
                       }
