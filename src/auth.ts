@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { passkey } from 'better-auth/plugins/passkey'
+import { config } from './config'
 import { db } from './db'
 import {
   accountsTable,
@@ -21,7 +22,7 @@ export const auth = betterAuth({
       passkey: passkeysTable,
     },
   }),
-  trustedOrigins: ['http://localhost:9000'],
+  trustedOrigins: [config.frontendUrl],
   emailAndPassword: {
     enabled: true,
   },

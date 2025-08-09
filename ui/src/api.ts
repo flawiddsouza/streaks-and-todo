@@ -9,7 +9,7 @@ const apiFetch = (path: string, init?: RequestInit) => {
   const url =
     path.startsWith('http://') || path.startsWith('https://')
       ? path
-      : `${API_BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`
+      : `${API_BASE_URL}/api${path.startsWith('/') ? '' : '/'}${path}`
   return fetch(url, { credentials: 'include', ...(init || {}) })
 }
 

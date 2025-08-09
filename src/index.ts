@@ -1,8 +1,10 @@
 /// <reference path="./elysia-types.d.ts" />
 import { cors } from '@elysiajs/cors'
+import { staticPlugin } from '@elysiajs/static'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { type Context, Elysia } from 'elysia'
 import { auth } from './auth'
+import { config } from './config'
 import { db } from './db'
 import {
   groupNotesTable,
@@ -90,17 +92,18 @@ const betterAuthView = (context: Context) => {
   }
 }
 
-const app = new Elysia()
+const api = new Elysia({ prefix: '/api' })
   .use(
     cors({
       credentials: true,
-      origin: ['http://localhost:9000'],
+      origin: [config.frontendUrl],
     }),
   )
-  // Optionally enforce auth globally by uncommenting below. For now, each route checks explicitly.
-  // .onBeforeHandle(async (ctx) => { ... })
-  .all('/api/auth/*', betterAuthView)
-  .get('/', () => 'Hello Elysia')
+  .all('/auth/*', betterAuthView)
+  // for some reason we need this route defined when staticPlugin is used with prefix '/' as
+  // it seems to be interfering with above route in some way - not sure how
+  // if you remove this, /auth/get-session will return 404
+  .get('/auth/get-session', betterAuthView)
   .get(
     '/streak-groups/:groupId',
     async ({ params: { groupId }, error, request }) => {
@@ -599,8 +602,6 @@ const app = new Elysia()
       }
     },
   )
-
-app
   .get('/streaks', async ({ error, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
@@ -722,82 +723,78 @@ app
       }
     },
   )
+  .delete(
+    '/groups/:groupId/streaks/:streakId',
+    async ({ params: { groupId, streakId }, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const groupIdNum = parseInt(groupId)
+        const streakIdNum = parseInt(streakId)
 
-app.delete(
-  '/groups/:groupId/streaks/:streakId',
-  async ({ params: { groupId, streakId }, error, request }) => {
-    try {
-      const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
-      const userId = session.user.id
-      const groupIdNum = parseInt(groupId)
-      const streakIdNum = parseInt(streakId)
+        if (Number.isNaN(groupIdNum) || Number.isNaN(streakIdNum)) {
+          return error(400, { message: 'Invalid group or streak ID' })
+        }
 
-      if (Number.isNaN(groupIdNum) || Number.isNaN(streakIdNum)) {
-        return error(400, { message: 'Invalid group or streak ID' })
-      }
-
-      const deletedStreakGroup = await db
-        .delete(streakGroupsTable)
-        .where(
-          and(
-            eq(streakGroupsTable.groupId, groupIdNum),
-            eq(streakGroupsTable.streakId, streakIdNum),
-            eq(streakGroupsTable.userId, userId),
-          ),
-        )
-        .returning()
-
-      if (deletedStreakGroup.length === 0) {
-        return error(404, { message: 'Streak not found in group' })
-      }
-
-      return { message: 'Streak removed from group successfully' }
-    } catch (err) {
-      console.error('Error removing streak from group:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  },
-)
-
-app.put(
-  '/groups/:groupId/streaks/reorder',
-  async ({ params: { groupId }, body, error, request }) => {
-    try {
-      const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
-      const userId = session.user.id
-      const groupIdNum = parseInt(groupId)
-      const { streaks } = body as {
-        streaks: { streakId: number; sortOrder: number }[]
-      }
-
-      if (Number.isNaN(groupIdNum)) {
-        return error(400, { message: 'Invalid group ID' })
-      }
-
-      for (const streak of streaks) {
-        await db
-          .update(streakGroupsTable)
-          .set({ sortOrder: streak.sortOrder })
+        const deletedStreakGroup = await db
+          .delete(streakGroupsTable)
           .where(
             and(
               eq(streakGroupsTable.groupId, groupIdNum),
-              eq(streakGroupsTable.streakId, streak.streakId),
+              eq(streakGroupsTable.streakId, streakIdNum),
               eq(streakGroupsTable.userId, userId),
             ),
           )
+          .returning()
+
+        if (deletedStreakGroup.length === 0) {
+          return error(404, { message: 'Streak not found in group' })
+        }
+
+        return { message: 'Streak removed from group successfully' }
+      } catch (err) {
+        console.error('Error removing streak from group:', err)
+        return error(500, { message: 'Internal server error' })
       }
+    },
+  )
+  .put(
+    '/groups/:groupId/streaks/reorder',
+    async ({ params: { groupId }, body, error, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return error(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const groupIdNum = parseInt(groupId)
+        const { streaks } = body as {
+          streaks: { streakId: number; sortOrder: number }[]
+        }
 
-      return { message: 'Streak order updated successfully' }
-    } catch (err) {
-      console.error('Error updating streak order:', err)
-      return error(500, { message: 'Internal server error' })
-    }
-  },
-)
+        if (Number.isNaN(groupIdNum)) {
+          return error(400, { message: 'Invalid group ID' })
+        }
 
-app
+        for (const streak of streaks) {
+          await db
+            .update(streakGroupsTable)
+            .set({ sortOrder: streak.sortOrder })
+            .where(
+              and(
+                eq(streakGroupsTable.groupId, groupIdNum),
+                eq(streakGroupsTable.streakId, streak.streakId),
+                eq(streakGroupsTable.userId, userId),
+              ),
+            )
+        }
+
+        return { message: 'Streak order updated successfully' }
+      } catch (err) {
+        console.error('Error updating streak order:', err)
+        return error(500, { message: 'Internal server error' })
+      }
+    },
+  )
   .post('/groups', async ({ body, error, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
@@ -1936,7 +1933,16 @@ app
     },
   )
 
-app.listen(9008)
+const app = new Elysia()
+  .use(
+    staticPlugin({
+      assets: 'ui/dist',
+      prefix: '/',
+      indexHTML: true,
+    }),
+  )
+  .use(api)
+  .listen(9008)
 
 console.log(
   `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`,
