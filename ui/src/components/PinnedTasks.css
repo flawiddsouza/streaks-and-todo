@@ -1,13 +1,5 @@
 .pinned-section {
-  margin-top: 16px;
-  border-top: 1px solid #e5e7eb;
-  padding-top: 12px;
-}
-
-.pinned-title {
-  font-size: 14px;
-  color: #6b7280;
-  margin: 0 0 8px 0;
+  margin-top: 1rem;
 }
 
 .pin-group {
@@ -91,6 +83,9 @@
 
 .pin-input-wrap {
   position: relative;
+  display: inline-block; /* shrink-wrap to input width */
+  width: 100%;
+  max-width: 420px; /* mirror input's max width */
 }
 
 .pin-input {
@@ -108,7 +103,7 @@
 .pin-menu {
   position: absolute;
   left: 0;
-  right: 0;
+  right: auto; /* avoid stretching to full parent width */
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
@@ -116,11 +111,21 @@
   z-index: 10;
   max-height: 180px;
   overflow: auto;
+  list-style: none; /* remove bullets */
+  padding: 0; /* reset default ul padding */
+  width: 100%; /* match input width */
+  max-width: 420px; /* cap to input's max width */
+  box-sizing: border-box;
+}
+
+.pin-menu:empty {
+  border: none;
 }
 
 .pin-menu li {
   padding: 6px 8px;
   cursor: pointer;
+  list-style: none; /* ensure no bullets if nested */
 }
 
 .pin-menu li.highlighted {

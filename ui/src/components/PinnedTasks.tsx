@@ -275,8 +275,6 @@ export default function PinnedTasks({
 
   return (
     <div className="pinned-section">
-      <h3 className="pinned-title">Pinned</h3>
-
       {/* Pin group list with drag-reorder */}
       {pinGroups.map((pg, idx) => (
         <PinGroupRow
