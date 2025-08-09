@@ -24,14 +24,28 @@ interface StreakGroupTableProps {
 }
 
 const generateDateRange = (dates: string[]): string[] => {
-  if (dates.length === 0) return []
+  const today = dayjs()
+
+  if (dates.length === 0) {
+    const dateArray: string[] = []
+    for (let i = 6; i >= 0; i--) {
+      dateArray.push(today.subtract(i, 'day').format('YYYY-MM-DD'))
+    }
+    return dateArray
+  }
 
   const sortedDates = [...dates].sort()
   const startDate = dayjs(sortedDates[0])
-  const endDate = dayjs(sortedDates[sortedDates.length - 1])
+  const lastRecorded = dayjs(sortedDates[sortedDates.length - 1])
+  const endDate = today.isAfter(lastRecorded) ? today : lastRecorded
+
+  const sevenDaysAgo = today.subtract(6, 'day')
+  const actualStartDate = startDate.isBefore(sevenDaysAgo)
+    ? startDate
+    : sevenDaysAgo
 
   const allDates: string[] = []
-  let iterDate = startDate
+  let iterDate = actualStartDate
   while (iterDate.isBefore(endDate) || iterDate.isSame(endDate)) {
     allDates.push(iterDate.format('YYYY-MM-DD'))
     iterDate = iterDate.add(1, 'day')
