@@ -1212,7 +1212,6 @@ app
       return error(500, { message: 'Internal server error' })
     }
   })
-  // Create a pin subgroup under a task group
   .post(
     '/groups/:groupId/pin-groups',
     async ({ params: { groupId }, body, error }) => {
@@ -1270,7 +1269,6 @@ app
       }
     },
   )
-  // Add a task reference into a pin group
   .post(
     '/pin-groups/:pinGroupId/tasks',
     async ({ params: { pinGroupId }, body, error }) => {
@@ -1338,7 +1336,6 @@ app
       }
     },
   )
-  // Remove a task reference from a pin group
   .delete(
     '/pin-groups/:pinGroupId/tasks/:taskId',
     async ({ params: { pinGroupId, taskId }, error }) => {
@@ -1366,7 +1363,6 @@ app
       }
     },
   )
-  // Reorder tasks within a pin group
   .put(
     '/pin-groups/:pinGroupId/tasks/reorder',
     async ({ params: { pinGroupId }, body, error }) => {
@@ -1493,7 +1489,6 @@ app
     },
   )
 
-  // Reorder pin groups under a parent task group
   .put(
     '/groups/:groupId/pin-groups/reorder',
     async ({ params: { groupId }, body, error }) => {

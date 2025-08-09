@@ -54,7 +54,7 @@ export interface ApiStreakGroupResponse {
 export interface ApiTaskGroupResponse {
   group: ApiGroup
   tasks: ApiTask[]
-  notes?: { date: string; note: string }[] // add notes array
+  notes?: { date: string; note: string }[]
   pins?: {
     id: number
     name: string
@@ -105,7 +105,7 @@ export interface TaskGroup {
   id: number
   name: string
   tasks: TaskItem[]
-  notes?: { date: string; note: string }[] // add notes array
+  notes?: { date: string; note: string }[]
   pins?: {
     id: number
     name: string

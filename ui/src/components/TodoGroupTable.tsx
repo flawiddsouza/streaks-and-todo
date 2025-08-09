@@ -55,9 +55,6 @@ interface FlatTask {
   }>
 }
 
-// Helper: render a task label with optional substitution.
-// If the task name contains the placeholder and extraInfo is provided, substitute it; otherwise leave as-is.
-// Returns the formatted text and a flag indicating if substitution occurred.
 const formatTaskWithExtraInfo = (
   taskName: string,
   extraInfo?: string,
@@ -80,7 +77,6 @@ const generateDateRange = (dates: string[]): string[] => {
   const today = dayjs()
 
   if (dates.length === 0) {
-    // When no data exists, show the last 7 days so user can start working
     const dateArray = []
     for (let i = 6; i >= 0; i--) {
       dateArray.push(today.subtract(i, 'day').format('YYYY-MM-DD'))
@@ -94,7 +90,6 @@ const generateDateRange = (dates: string[]): string[] => {
     ? dayjs()
     : dayjs(sortedDates[sortedDates.length - 1])
 
-  // Ensure we always show at least the last 7 days
   const sevenDaysAgo = today.subtract(6, 'day')
   const actualStartDate = startDate.isBefore(sevenDaysAgo)
     ? startDate
@@ -181,7 +176,6 @@ const parseTaskWithExtraInfo = (
   return { task: taskText.trim() }
 }
 
-// Task Item Component
 interface TaskItemProps {
   taskLog: TaskItem
   date: string
@@ -372,7 +366,6 @@ function TaskItemComponent({
   )
 }
 
-// Task Column Component
 interface TaskColumnProps {
   tasks: TaskItem[]
   date: string
