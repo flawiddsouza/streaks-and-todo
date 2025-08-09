@@ -87,6 +87,7 @@ export default function Home() {
           <SessionBar session={session} loading={loading} />
         </div>
       </div>
+
       {session && !loading && (
         <>
           <div style={{ marginTop: '0.5rem' }}>
@@ -96,6 +97,106 @@ export default function Home() {
             <Link to={`/todo`}>Todo Groups</Link>
           </div>
         </>
+      )}
+
+      {!session && !loading && (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '2rem',
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <h1 style={{ marginBottom: '1rem', color: '#333' }}>
+            Welcome to Streaks & Todo
+          </h1>
+          <p
+            style={{
+              fontSize: '1.1rem',
+              lineHeight: '1.6',
+              marginBottom: '1.5rem',
+              color: '#666',
+            }}
+          >
+            Track your daily habits and manage your tasks effectively. Build
+            consistent streaks and stay organized with our simple, powerful
+            productivity tools.
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '1.5rem',
+              marginBottom: '2rem',
+            }}
+          >
+            <div
+              style={{
+                padding: '1.5rem',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                backgroundColor: '#f9f9f9',
+              }}
+            >
+              <h3 style={{ marginBottom: '0.5rem', color: '#333' }}>
+                📈 Streak Tracking
+              </h3>
+              <p style={{ color: '#666', fontSize: '0.9rem' }}>
+                Build and maintain daily habits. Track your progress and
+                celebrate your longest streaks.
+              </p>
+            </div>
+
+            <div
+              style={{
+                padding: '1.5rem',
+                border: '1px solid #ddd',
+                borderRadius: '8px',
+                backgroundColor: '#f9f9f9',
+              }}
+            >
+              <h3 style={{ marginBottom: '0.5rem', color: '#333' }}>
+                ✅ Task Management
+              </h3>
+              <p style={{ color: '#666', fontSize: '0.9rem' }}>
+                Organize your todos in groups. Pin important tasks and stay on
+                top of your daily responsibilities.
+              </p>
+            </div>
+          </div>
+
+          <div
+            style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}
+          >
+            <Link
+              to="/signup"
+              style={{
+                padding: '0.75rem 1.5rem',
+                backgroundColor: '#007bff',
+                color: 'white',
+                textDecoration: 'none',
+                borderRadius: '5px',
+                fontWeight: 'bold',
+              }}
+            >
+              Get Started
+            </Link>
+            <Link
+              to="/signin"
+              style={{
+                padding: '0.75rem 1.5rem',
+                border: '1px solid #007bff',
+                color: '#007bff',
+                textDecoration: 'none',
+                borderRadius: '5px',
+              }}
+            >
+              Sign In
+            </Link>
+          </div>
+        </div>
       )}
     </div>
   )
