@@ -34,6 +34,14 @@ export default function SignIn() {
 
   return (
     <div className="page">
+      <div className="page-nav">
+        <div className="nav-left">
+          <Link to="/" className="back-link">
+            ← Back to Home
+          </Link>
+        </div>
+        <div className="nav-right"></div>
+      </div>
       <div className="page-header">
         <h1 className="page-title">Sign In</h1>
       </div>
