@@ -39,3 +39,14 @@ bun db:update
 ```bash
 bun format
 ```
+
+## Production
+
+```bash
+docker compose up -d
+```
+
+### Migration
+```bash
+docker compose exec backend bun run db:update
+```
