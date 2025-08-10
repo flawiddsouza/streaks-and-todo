@@ -87,7 +87,7 @@ const betterAuthView = (context: Context) => {
   if (BETTER_AUTH_ACCEPT_METHODS.includes(context.request.method)) {
     return auth.handler(context.request)
   } else {
-    context.error(405)
+    return context.status(405)
   }
 }
 
@@ -101,15 +101,15 @@ const api = new Elysia({ prefix: '/api' })
   .all('/auth/*', betterAuthView)
   .get(
     '/streak-groups/:groupId',
-    async ({ params: { groupId }, error, request }) => {
+    async ({ params: { groupId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
 
         const group = await db
@@ -121,7 +121,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (group.length === 0) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         const streaksInGroup = await db
@@ -215,21 +215,21 @@ const api = new Elysia({ prefix: '/api' })
         }
       } catch (err) {
         console.error('Error fetching streak group data:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .get(
     '/task-groups/:groupId',
-    async ({ params: { groupId }, error, request }) => {
+    async ({ params: { groupId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
 
         const group = await db
@@ -241,12 +241,12 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (group.length === 0) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         // Check if this is actually a task group
         if (group[0].type !== 'tasks') {
-          return error(400, { message: 'Group is not a task group' })
+          return status(400, { message: 'Group is not a task group' })
         }
 
         const tasks = await db
@@ -344,19 +344,19 @@ const api = new Elysia({ prefix: '/api' })
         }
       } catch (err) {
         console.error('Error fetching task group data:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
-  .get('/groups', async ({ query, error, request }) => {
+  .get('/groups', async ({ query, status, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
+      if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
       const { type } = query as { type: 'streaks' | 'tasks' }
 
       if (!type || (type !== 'streaks' && type !== 'tasks')) {
-        return error(400, {
+        return status(400, {
           message:
             'Type parameter is required and must be either "streaks" or "tasks"',
         })
@@ -371,25 +371,25 @@ const api = new Elysia({ prefix: '/api' })
       return { groups }
     } catch (err) {
       console.error('Error fetching groups:', err)
-      return error(500, { message: 'Internal server error' })
+      return status(500, { message: 'Internal server error' })
     }
   })
   .post(
     '/streaks/:streakId/toggle',
-    async ({ params: { streakId }, body, error, request }) => {
+    async ({ params: { streakId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const streakIdNum = parseInt(streakId)
         const { date } = body as { date: string }
 
         if (Number.isNaN(streakIdNum)) {
-          return error(400, { message: 'Invalid streak ID' })
+          return status(400, { message: 'Invalid streak ID' })
         }
 
         if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
         const streak = await db
@@ -404,7 +404,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (streak.length === 0) {
-          return error(404, { message: 'Streak not found' })
+          return status(404, { message: 'Streak not found' })
         }
         const existingLog = await db
           .select()
@@ -482,7 +482,7 @@ const api = new Elysia({ prefix: '/api' })
                   group: groupNameById.get(t.groupId) || '',
                 }))
 
-                return error(409, {
+                return status(409, {
                   message:
                     "Can't undo this streak log because it's marked done by task(s): " +
                     blockingTaskNames.join(', ') +
@@ -515,26 +515,26 @@ const api = new Elysia({ prefix: '/api' })
         return { log }
       } catch (err) {
         console.error('Error toggling streak log:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .put(
     '/streaks/:streakId/:date/note',
-    async ({ params: { streakId, date }, body, error, request }) => {
+    async ({ params: { streakId, date }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const streakIdNum = parseInt(streakId)
         const { note } = body as { note: string }
 
         if (Number.isNaN(streakIdNum)) {
-          return error(400, { message: 'Invalid streak ID' })
+          return status(400, { message: 'Invalid streak ID' })
         }
 
         if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
         const streak = await db
@@ -549,7 +549,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (streak.length === 0) {
-          return error(404, { message: 'Streak not found' })
+          return status(404, { message: 'Streak not found' })
         }
 
         const existingLog = await db
@@ -593,14 +593,14 @@ const api = new Elysia({ prefix: '/api' })
         return { log }
       } catch (err) {
         console.error('Error updating streak log note:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
-  .get('/streaks', async ({ error, request }) => {
+  .get('/streaks', async ({ status, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
+      if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
       const streaks = await db
         .select()
@@ -609,18 +609,18 @@ const api = new Elysia({ prefix: '/api' })
       return { streaks }
     } catch (err) {
       console.error('Error fetching all streaks:', err)
-      return error(500, { message: 'Internal server error' })
+      return status(500, { message: 'Internal server error' })
     }
   })
-  .post('/streaks', async ({ body, error, request }) => {
+  .post('/streaks', async ({ body, status, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
+      if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
       const { name } = body as { name: string }
 
       if (!name || name.trim().length === 0) {
-        return error(400, { message: 'Streak name is required' })
+        return status(400, { message: 'Streak name is required' })
       }
 
       const existingStreak = await db
@@ -635,7 +635,7 @@ const api = new Elysia({ prefix: '/api' })
         .limit(1)
 
       if (existingStreak.length > 0) {
-        return error(409, { message: 'Streak with this name already exists' })
+        return status(409, { message: 'Streak with this name already exists' })
       }
 
       const [newStreak] = await db
@@ -646,15 +646,15 @@ const api = new Elysia({ prefix: '/api' })
       return { streak: newStreak }
     } catch (err) {
       console.error('Error creating streak:', err)
-      return error(500, { message: 'Internal server error' })
+      return status(500, { message: 'Internal server error' })
     }
   })
   .post(
     '/groups/:groupId/streaks',
-    async ({ params: { groupId }, body, error, request }) => {
+    async ({ params: { groupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { streakId, sortOrder } = body as {
@@ -663,7 +663,7 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
 
         const streak = await db
@@ -675,7 +675,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (streak.length === 0) {
-          return error(404, { message: 'Streak not found' })
+          return status(404, { message: 'Streak not found' })
         }
 
         const group = await db
@@ -687,7 +687,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (group.length === 0) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         const existing = await db
@@ -703,7 +703,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (existing.length > 0) {
-          return error(409, { message: 'Streak already in group' })
+          return status(409, { message: 'Streak already in group' })
         }
 
         const [newStreakGroup] = await db
@@ -714,22 +714,22 @@ const api = new Elysia({ prefix: '/api' })
         return { streakGroup: newStreakGroup }
       } catch (err) {
         console.error('Error adding streak to group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .delete(
     '/groups/:groupId/streaks/:streakId',
-    async ({ params: { groupId, streakId }, error, request }) => {
+    async ({ params: { groupId, streakId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const streakIdNum = parseInt(streakId)
 
         if (Number.isNaN(groupIdNum) || Number.isNaN(streakIdNum)) {
-          return error(400, { message: 'Invalid group or streak ID' })
+          return status(400, { message: 'Invalid group or streak ID' })
         }
 
         const deletedStreakGroup = await db
@@ -744,22 +744,22 @@ const api = new Elysia({ prefix: '/api' })
           .returning()
 
         if (deletedStreakGroup.length === 0) {
-          return error(404, { message: 'Streak not found in group' })
+          return status(404, { message: 'Streak not found in group' })
         }
 
         return { message: 'Streak removed from group successfully' }
       } catch (err) {
         console.error('Error removing streak from group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .put(
     '/groups/:groupId/streaks/reorder',
-    async ({ params: { groupId }, body, error, request }) => {
+    async ({ params: { groupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { streaks } = body as {
@@ -767,7 +767,7 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
 
         for (const streak of streaks) {
@@ -786,23 +786,23 @@ const api = new Elysia({ prefix: '/api' })
         return { message: 'Streak order updated successfully' }
       } catch (err) {
         console.error('Error updating streak order:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
-  .post('/groups', async ({ body, error, request }) => {
+  .post('/groups', async ({ body, status, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
+      if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
       const { name, type } = body as { name: string; type: 'streaks' | 'tasks' }
 
       if (!name || name.trim().length === 0) {
-        return error(400, { message: 'Group name is required' })
+        return status(400, { message: 'Group name is required' })
       }
 
       if (!type || (type !== 'streaks' && type !== 'tasks')) {
-        return error(400, {
+        return status(400, {
           message:
             'Group type is required and must be either "streaks" or "tasks"',
         })
@@ -820,7 +820,7 @@ const api = new Elysia({ prefix: '/api' })
         .limit(1)
 
       if (existingGroup.length > 0) {
-        return error(409, { message: 'Group with this name already exists' })
+        return status(409, { message: 'Group with this name already exists' })
       }
 
       const lastGroup = await db
@@ -846,20 +846,20 @@ const api = new Elysia({ prefix: '/api' })
       return { group: newGroup }
     } catch (err) {
       console.error('Error creating group:', err)
-      return error(500, { message: 'Internal server error' })
+      return status(500, { message: 'Internal server error' })
     }
   })
   .delete(
     '/groups/:groupId',
-    async ({ params: { groupId }, error, request }) => {
+    async ({ params: { groupId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
 
         await db
@@ -879,32 +879,32 @@ const api = new Elysia({ prefix: '/api' })
           .returning()
 
         if (deletedGroup.length === 0) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         return { message: 'Group deleted successfully', group: deletedGroup[0] }
       } catch (err) {
         console.error('Error deleting group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .put(
     '/groups/:groupId',
-    async ({ params: { groupId }, body, error, request }) => {
+    async ({ params: { groupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { name } = body as { name: string }
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
 
         if (!name || name.trim().length === 0) {
-          return error(400, { message: 'Group name is required' })
+          return status(400, { message: 'Group name is required' })
         }
 
         const existingGroup = await db
@@ -919,11 +919,11 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (existingGroup.length > 0 && existingGroup[0].id !== groupIdNum) {
-          return error(409, { message: 'Group with this name already exists' })
+          return status(409, { message: 'Group with this name already exists' })
         }
 
         if (existingGroup.length > 0) {
-          return error(409, { message: 'Group with this name already exists' })
+          return status(409, { message: 'Group with this name already exists' })
         }
 
         const [updatedGroup] = await db
@@ -935,27 +935,27 @@ const api = new Elysia({ prefix: '/api' })
           .returning()
 
         if (!updatedGroup) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         return { group: updatedGroup }
       } catch (err) {
         console.error('Error updating group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
-  .put('/groups/reorder', async ({ body, error, request }) => {
+  .put('/groups/reorder', async ({ body, status, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
+      if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
       const { groups } = body as {
         groups: { groupId: number; sortOrder: number }[]
       }
 
       if (!groups || !Array.isArray(groups)) {
-        return error(400, { message: 'Invalid groups data' })
+        return status(400, { message: 'Invalid groups data' })
       }
 
       for (const group of groups) {
@@ -973,27 +973,27 @@ const api = new Elysia({ prefix: '/api' })
       return { message: 'Group order updated successfully' }
     } catch (err) {
       console.error('Error updating group order:', err)
-      return error(500, { message: 'Internal server error' })
+      return status(500, { message: 'Internal server error' })
     }
   })
   .post(
     '/tasks/:taskId/log',
-    async ({ params: { taskId }, body, error, request }) => {
+    async ({ params: { taskId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const taskIdNum = parseInt(taskId)
         const { date, done } = body as { date: string; done: boolean }
 
         if (Number.isNaN(taskIdNum)) {
-          return error(400, { message: 'Invalid task ID' })
+          return status(400, { message: 'Invalid task ID' })
         }
         if (!date || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) {
-          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
         if (typeof done !== 'boolean') {
-          return error(400, { message: 'Missing or invalid done parameter' })
+          return status(400, { message: 'Missing or invalid done parameter' })
         }
 
         const task = await db
@@ -1005,7 +1005,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (task.length === 0) {
-          return error(404, { message: 'Task not found' })
+          return status(404, { message: 'Task not found' })
         }
 
         const existingLog = await db
@@ -1089,26 +1089,26 @@ const api = new Elysia({ prefix: '/api' })
         return { log }
       } catch (err) {
         console.error('Error setting task log:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .put(
     '/tasks/:taskId/:date/note',
-    async ({ params: { taskId, date }, body, error, request }) => {
+    async ({ params: { taskId, date }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const taskIdNum = parseInt(taskId)
         const { extraInfo } = body as { extraInfo: string }
 
         if (Number.isNaN(taskIdNum)) {
-          return error(400, { message: 'Invalid task ID' })
+          return status(400, { message: 'Invalid task ID' })
         }
 
         if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
         const task = await db
@@ -1120,7 +1120,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (task.length === 0) {
-          return error(404, { message: 'Task not found' })
+          return status(404, { message: 'Task not found' })
         }
 
         const existingLog = await db
@@ -1188,28 +1188,28 @@ const api = new Elysia({ prefix: '/api' })
         return { log }
       } catch (err) {
         console.error('Error updating task log note:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .put(
     '/groups/:groupId/:date/note',
-    async ({ params: { groupId, date }, body, error, request }) => {
+    async ({ params: { groupId, date }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { note } = body as { note: string }
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
         if (!date || !/\d{4}-\d{2}-\d{2}/.test(date)) {
-          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
         if (typeof note !== 'string') {
-          return error(400, { message: 'Note is required' })
+          return status(400, { message: 'Note is required' })
         }
 
         // Check if group exists
@@ -1221,7 +1221,7 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (group.length === 0) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         // Check if note exists
@@ -1261,16 +1261,16 @@ const api = new Elysia({ prefix: '/api' })
         return { note: result }
       } catch (err) {
         console.error('Error updating group note:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .post(
     '/groups/:groupId/tasks',
-    async ({ params: { groupId }, body, error, request }) => {
+    async ({ params: { groupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { task, defaultExtraInfo } = body as {
@@ -1279,10 +1279,10 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         if (Number.isNaN(groupIdNum)) {
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         }
         if (!task || typeof task !== 'string' || task.trim().length === 0) {
-          return error(400, { message: 'Task name is required' })
+          return status(400, { message: 'Task name is required' })
         }
 
         // Check if group exists
@@ -1294,7 +1294,7 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (group.length === 0) {
-          return error(404, { message: 'Group not found' })
+          return status(404, { message: 'Group not found' })
         }
 
         // Check for duplicate task in group
@@ -1309,7 +1309,7 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (existing.length > 0) {
-          return error(409, { message: 'Task already exists in this group' })
+          return status(409, { message: 'Task already exists in this group' })
         }
 
         const [newTask] = await db
@@ -1325,25 +1325,25 @@ const api = new Elysia({ prefix: '/api' })
         return { task: newTask }
       } catch (err) {
         console.error('Error creating task:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .delete(
     '/tasks/:taskId/:date/log',
-    async ({ params: { taskId, date }, error, request }) => {
+    async ({ params: { taskId, date }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const taskIdNum = parseInt(taskId)
 
         if (Number.isNaN(taskIdNum)) {
-          return error(400, { message: 'Invalid task ID' })
+          return status(400, { message: 'Invalid task ID' })
         }
 
         if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
         const task = await db
@@ -1355,7 +1355,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (task.length === 0) {
-          return error(404, { message: 'Task not found' })
+          return status(404, { message: 'Task not found' })
         }
 
         const deletedLog = await db
@@ -1369,7 +1369,7 @@ const api = new Elysia({ prefix: '/api' })
           .returning()
 
         if (deletedLog.length === 0) {
-          return error(404, { message: 'Task log not found' })
+          return status(404, { message: 'Task log not found' })
         }
 
         // If the deleted log was done and this task is linked to a streak, mark the streak as undone for that date
@@ -1396,14 +1396,14 @@ const api = new Elysia({ prefix: '/api' })
         return { message: 'Task log deleted successfully', log: deletedLog[0] }
       } catch (err) {
         console.error('Error deleting task log:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
-  .put('/tasks/reorder', async ({ body, error, request }) => {
+  .put('/tasks/reorder', async ({ body, status, request }) => {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
-      if (!session) return error(401, { message: 'Unauthorized' })
+      if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
       const { date, taskLogs } = body as {
         date: string
@@ -1411,11 +1411,11 @@ const api = new Elysia({ prefix: '/api' })
       }
 
       if (!date || !taskLogs || !Array.isArray(taskLogs)) {
-        return error(400, { message: 'Invalid request body' })
+        return status(400, { message: 'Invalid request body' })
       }
 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        return error(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
       }
 
       // Update sort order for each task log
@@ -1435,23 +1435,23 @@ const api = new Elysia({ prefix: '/api' })
       return { message: 'Task logs reordered successfully' }
     } catch (err) {
       console.error('Error reordering task logs:', err)
-      return error(500, { message: 'Internal server error' })
+      return status(500, { message: 'Internal server error' })
     }
   })
   .post(
     '/groups/:groupId/pin-groups',
-    async ({ params: { groupId }, body, error, request }) => {
+    async ({ params: { groupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { name } = body as { name: string }
 
         if (Number.isNaN(groupIdNum))
-          return error(400, { message: 'Invalid group ID' })
+          return status(400, { message: 'Invalid group ID' })
         if (!name || name.trim().length === 0)
-          return error(400, { message: 'Pin group name is required' })
+          return status(400, { message: 'Pin group name is required' })
 
         // parent must be a task group
         const parent = await db
@@ -1462,9 +1462,9 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (parent.length === 0)
-          return error(404, { message: 'Parent group not found' })
+          return status(404, { message: 'Parent group not found' })
         if (parent[0].type !== 'tasks')
-          return error(400, {
+          return status(400, {
             message: 'Pin groups can only be created under task groups',
           })
 
@@ -1498,16 +1498,16 @@ const api = new Elysia({ prefix: '/api' })
         return { pinGroup }
       } catch (err) {
         console.error('Error creating pin group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .post(
     '/pin-groups/:pinGroupId/tasks',
-    async ({ params: { pinGroupId }, body, error, request }) => {
+    async ({ params: { pinGroupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const { taskId, sortOrder } = body as {
@@ -1516,9 +1516,9 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         if (Number.isNaN(pinGroupIdNum))
-          return error(400, { message: 'Invalid pin group ID' })
+          return status(400, { message: 'Invalid pin group ID' })
         if (!taskId || Number.isNaN(Number(taskId)))
-          return error(400, { message: 'Invalid task ID' })
+          return status(400, { message: 'Invalid task ID' })
 
         const pinGroup = await db
           .select()
@@ -1531,16 +1531,16 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (pinGroup.length === 0)
-          return error(404, { message: 'Pin group not found' })
+          return status(404, { message: 'Pin group not found' })
         if (pinGroup[0].type !== 'pins')
-          return error(400, { message: 'Not a pin group' })
+          return status(400, { message: 'Not a pin group' })
 
         const task = await db
           .select()
           .from(tasksTable)
           .where(and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)))
           .limit(1)
-        if (task.length === 0) return error(404, { message: 'Task not found' })
+        if (task.length === 0) return status(404, { message: 'Task not found' })
 
         const existing = await db
           .select()
@@ -1554,7 +1554,7 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (existing.length > 0)
-          return error(409, { message: 'Task already pinned in this group' })
+          return status(409, { message: 'Task already pinned in this group' })
 
         let finalSortOrder = sortOrder
         if (finalSortOrder == null) {
@@ -1584,21 +1584,21 @@ const api = new Elysia({ prefix: '/api' })
         return { pin }
       } catch (err) {
         console.error('Error adding task to pin group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .delete(
     '/pin-groups/:pinGroupId/tasks/:taskId',
-    async ({ params: { pinGroupId, taskId }, error, request }) => {
+    async ({ params: { pinGroupId, taskId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const taskIdNum = parseInt(taskId)
         if (Number.isNaN(pinGroupIdNum) || Number.isNaN(taskIdNum))
-          return error(400, { message: 'Invalid pin group or task ID' })
+          return status(400, { message: 'Invalid pin group or task ID' })
 
         const deleted = await db
           .delete(groupPinsTable)
@@ -1611,29 +1611,29 @@ const api = new Elysia({ prefix: '/api' })
           )
           .returning()
         if (deleted.length === 0)
-          return error(404, { message: 'Pin not found' })
+          return status(404, { message: 'Pin not found' })
         return { message: 'Task unpinned' }
       } catch (err) {
         console.error('Error removing task from pin group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
   .put(
     '/pin-groups/:pinGroupId/tasks/reorder',
-    async ({ params: { pinGroupId }, body, error, request }) => {
+    async ({ params: { pinGroupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const { items } = body as {
           items: { taskId: number; sortOrder: number }[]
         }
         if (Number.isNaN(pinGroupIdNum))
-          return error(400, { message: 'Invalid pin group ID' })
+          return status(400, { message: 'Invalid pin group ID' })
         if (!Array.isArray(items))
-          return error(400, { message: 'Invalid items' })
+          return status(400, { message: 'Invalid items' })
 
         for (const it of items) {
           await db
@@ -1650,7 +1650,7 @@ const api = new Elysia({ prefix: '/api' })
         return { message: 'Reordered' }
       } catch (err) {
         console.error('Error reordering pin group tasks:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
@@ -1658,18 +1658,18 @@ const api = new Elysia({ prefix: '/api' })
   // Rename a pin group
   .put(
     '/pin-groups/:pinGroupId',
-    async ({ params: { pinGroupId }, body, error, request }) => {
+    async ({ params: { pinGroupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         const { name } = body as { name: string }
 
         if (Number.isNaN(pinGroupIdNum))
-          return error(400, { message: 'Invalid pin group ID' })
+          return status(400, { message: 'Invalid pin group ID' })
         if (!name || name.trim().length === 0)
-          return error(400, { message: 'Name is required' })
+          return status(400, { message: 'Name is required' })
 
         // Ensure target is a pin group
         const existing = await db
@@ -1683,9 +1683,9 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (existing.length === 0)
-          return error(404, { message: 'Pin group not found' })
+          return status(404, { message: 'Pin group not found' })
         if (existing[0].type !== 'pins')
-          return error(400, { message: 'Group is not a pin group' })
+          return status(400, { message: 'Group is not a pin group' })
 
         // Optional: prevent duplicate names within the same parent
         if (existing[0].group_id != null) {
@@ -1702,7 +1702,7 @@ const api = new Elysia({ prefix: '/api' })
             )
             .limit(1)
           if (dup.length > 0 && dup[0].id !== pinGroupIdNum) {
-            return error(409, {
+            return status(409, {
               message: 'A pin group with this name already exists',
             })
           }
@@ -1722,7 +1722,7 @@ const api = new Elysia({ prefix: '/api' })
         return { group: updated }
       } catch (err) {
         console.error('Error renaming pin group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
@@ -1730,14 +1730,14 @@ const api = new Elysia({ prefix: '/api' })
   // Delete a pin group (and its pins)
   .delete(
     '/pin-groups/:pinGroupId',
-    async ({ params: { pinGroupId }, error, request }) => {
+    async ({ params: { pinGroupId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const pinGroupIdNum = parseInt(pinGroupId)
         if (Number.isNaN(pinGroupIdNum))
-          return error(400, { message: 'Invalid pin group ID' })
+          return status(400, { message: 'Invalid pin group ID' })
 
         // Ensure it's a pin group
         const existing = await db
@@ -1751,9 +1751,9 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (existing.length === 0)
-          return error(404, { message: 'Pin group not found' })
+          return status(404, { message: 'Pin group not found' })
         if (existing[0].type !== 'pins')
-          return error(400, { message: 'Group is not a pin group' })
+          return status(400, { message: 'Group is not a pin group' })
 
         await db
           .delete(groupPinsTable)
@@ -1776,17 +1776,17 @@ const api = new Elysia({ prefix: '/api' })
         return { message: 'Pin group deleted', group: deleted }
       } catch (err) {
         console.error('Error deleting pin group:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
 
   .put(
     '/groups/:groupId/pin-groups/reorder',
-    async ({ params: { groupId }, body, error, request }) => {
+    async ({ params: { groupId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const groupIdNum = parseInt(groupId)
         const { items } = body as {
@@ -1794,9 +1794,9 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         if (Number.isNaN(groupIdNum))
-          return error(400, { message: 'Invalid parent group ID' })
+          return status(400, { message: 'Invalid parent group ID' })
         if (!Array.isArray(items))
-          return error(400, { message: 'Invalid items' })
+          return status(400, { message: 'Invalid items' })
 
         // ensure parent exists and is a task group
         const parent = await db
@@ -1807,9 +1807,9 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
         if (parent.length === 0)
-          return error(404, { message: 'Parent group not found' })
+          return status(404, { message: 'Parent group not found' })
         if (parent[0].type !== 'tasks')
-          return error(400, { message: 'Parent must be a task group' })
+          return status(400, { message: 'Parent must be a task group' })
 
         for (const it of items) {
           await db
@@ -1827,7 +1827,7 @@ const api = new Elysia({ prefix: '/api' })
         return { message: 'Pin groups reordered' }
       } catch (err) {
         console.error('Error reordering pin groups:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
@@ -1835,14 +1835,14 @@ const api = new Elysia({ prefix: '/api' })
   // Update a task's core fields (name, defaultExtraInfo)
   .put(
     '/tasks/:taskId',
-    async ({ params: { taskId }, body, error, request }) => {
+    async ({ params: { taskId }, body, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return error(401, { message: 'Unauthorized' })
+        if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
         const taskIdNum = parseInt(taskId)
         if (Number.isNaN(taskIdNum)) {
-          return error(400, { message: 'Invalid task ID' })
+          return status(400, { message: 'Invalid task ID' })
         }
 
         const { task, defaultExtraInfo, streakId } = body as {
@@ -1856,7 +1856,7 @@ const api = new Elysia({ prefix: '/api' })
           defaultExtraInfo === undefined &&
           streakId === undefined
         ) {
-          return error(400, { message: 'No fields to update' })
+          return status(400, { message: 'No fields to update' })
         }
 
         // Fetch existing task
@@ -1869,7 +1869,7 @@ const api = new Elysia({ prefix: '/api' })
           .limit(1)
 
         if (existing.length === 0) {
-          return error(404, { message: 'Task not found' })
+          return status(404, { message: 'Task not found' })
         }
 
         const updates: Partial<typeof tasksTable.$inferInsert> = {}
@@ -1877,7 +1877,7 @@ const api = new Elysia({ prefix: '/api' })
         if (task !== undefined) {
           const trimmed = (task ?? '').trim()
           if (trimmed.length === 0) {
-            return error(400, { message: 'Task name cannot be empty' })
+            return status(400, { message: 'Task name cannot be empty' })
           }
 
           // Prevent duplicate task names within the same group
@@ -1894,7 +1894,7 @@ const api = new Elysia({ prefix: '/api' })
             .limit(1)
 
           if (dup.length > 0 && dup[0].id !== taskIdNum) {
-            return error(409, {
+            return status(409, {
               message: 'Task with this name already exists in the group',
             })
           }
@@ -1923,7 +1923,7 @@ const api = new Elysia({ prefix: '/api' })
         return { task: updated }
       } catch (err) {
         console.error('Error updating task:', err)
-        return error(500, { message: 'Internal server error' })
+        return status(500, { message: 'Internal server error' })
       }
     },
   )
