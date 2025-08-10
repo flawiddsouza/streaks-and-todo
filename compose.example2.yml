@@ -1,0 +1,10 @@
+# Example docker compose file WITHOUT Postgres (app only; connect to external DB via env vars)
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "9008:9008"

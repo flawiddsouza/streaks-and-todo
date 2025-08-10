@@ -45,3 +45,5 @@ package-lock.json
 
 # docker data
 data
+
+compose.yml
