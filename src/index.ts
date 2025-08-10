@@ -1,4 +1,3 @@
-/// <reference path="./elysia-types.d.ts" />
 import { cors } from '@elysiajs/cors'
 import { staticPlugin } from '@elysiajs/static'
 import { and, desc, eq, inArray } from 'drizzle-orm'
@@ -100,10 +99,6 @@ const api = new Elysia({ prefix: '/api' })
     }),
   )
   .all('/auth/*', betterAuthView)
-  // for some reason we need this route defined when staticPlugin is used with prefix '/' as
-  // it seems to be interfering with above route in some way - not sure how
-  // if you remove this, /auth/get-session will return 404
-  .get('/auth/get-session', betterAuthView)
   .get(
     '/streak-groups/:groupId',
     async ({ params: { groupId }, error, request }) => {
@@ -1937,11 +1932,19 @@ const app = new Elysia()
   .use(
     staticPlugin({
       assets: 'ui/dist',
-      prefix: '/',
-      indexHTML: true,
+      prefix: '/public',
+      indexHTML: false,
     }),
   )
   .use(api)
+  .onError(({ code, request }) => {
+    if (code === 'NOT_FOUND') {
+      const { pathname } = new URL(request.url)
+      if (!pathname.startsWith('/api') && !pathname.startsWith('/public')) {
+        return Bun.file('ui/dist/index.html')
+      }
+    }
+  })
   .listen(9008)
 
 console.log(
