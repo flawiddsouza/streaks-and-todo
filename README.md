@@ -40,6 +40,7 @@ bun db:update
 bun format
 ```
 
+
 ## Production
 
 ```bash
@@ -49,4 +50,34 @@ docker compose up -d
 ### Migration
 ```bash
 docker compose exec backend bun run db:update
+```
+
+### Generate auth secret
+
+Generate or update `BETTER_AUTH_SECRET` in `.env` (creates `.env` from `.env.example` if missing):
+
+```bash
+bun run gen:auth-secret
+```
+
+Won't overwrite an existing non-placeholder value unless you pass `--force`:
+
+```bash
+bun run gen:auth-secret --force
+```
+
+## Helpers
+
+### Generate auth secret
+
+Generate or update `BETTER_AUTH_SECRET` in `.env` (creates `.env` from `.env.example` if missing):
+
+```bash
+bun run gen:auth-secret
+```
+
+Won't overwrite an existing non-placeholder value unless you pass `--force`:
+
+```bash
+bun run gen:auth-secret --force
 ```
