@@ -1,9 +1,7 @@
 # Example docker compose file WITHOUT Postgres (app only; connect to external DB via env vars)
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: flawiddsouza/streaks-and-todo:latest
     env_file:
       - .env
     ports:

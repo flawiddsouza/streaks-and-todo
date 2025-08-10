@@ -10,7 +10,10 @@
     "build-ui": "cd ui && bun run build",
     "build-ui-watch": "cd ui && bun start",
     "dev:all": "concurrently \"bun run dev\" \"bun run build-ui-watch\" --names \"SERVER,UI\" --prefix-colors \"blue,green\"",
-    "gen:auth-secret": "bun run scripts/generate-auth-secret.ts"
+    "gen:auth-secret": "bun run scripts/generate-auth-secret.ts",
+    "docker:build": "docker build -t flawiddsouza/streaks-and-todo:latest .",
+    "docker:push": "docker push flawiddsouza/streaks-and-todo:latest",
+    "docker:release": "bun run docker:build && bun run docker:push"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.3.3",
