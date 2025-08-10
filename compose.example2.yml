@@ -6,3 +6,4 @@ services:
       - .env
     ports:
       - "9008:9008"
+    restart: unless-stopped
