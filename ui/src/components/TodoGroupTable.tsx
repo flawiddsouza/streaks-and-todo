@@ -465,6 +465,10 @@ function TaskColumn({
                   placeholder,
                   className: 'todo-combobox-input',
                   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === 'Home' || e.key === 'End') {
+                      // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
+                      ;(e.nativeEvent as any).preventDownshiftDefault = true
+                    }
                     // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
                     if (
                       e.key === 'Enter' &&
