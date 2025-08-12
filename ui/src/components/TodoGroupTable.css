@@ -3,6 +3,7 @@
 .header-cell-done,
 .done-cell {
   width: 25rem;
+  min-width: 25rem;
   max-width: 25rem;
   text-align: left;
 }
