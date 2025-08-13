@@ -1016,14 +1016,12 @@ export default function TodoGroupTable({
 
         // If it's a cross-date move, we need to handle it differently
         if (sourceDate !== targetDate) {
-          // ...existing code for cross-date move...
           const sourceTaskData = allTasks.find((t) => t.id === sourceTaskId)
           if (!sourceTaskData) return
           const sourceRecord = sourceTaskData.records.find(
             (r) => r.date === sourceDate,
           )
           if (!sourceRecord) return
-          await deleteTaskLog(sourceTaskId, sourceDate)
           const targetCell = dateRows.find((row) => row.date === targetDate)
           if (!targetCell) return
           let finalTargetDone = false
@@ -1045,6 +1043,7 @@ export default function TodoGroupTable({
               sourceRecord.extraInfo,
             )
           }
+          await deleteTaskLog(sourceTaskId, sourceDate)
           if (targetTaskId !== -1) {
             const targetTasks = finalTargetDone
               ? targetCell.doneTasks
