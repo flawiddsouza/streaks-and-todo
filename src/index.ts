@@ -983,10 +983,26 @@ const api = new Elysia({ prefix: '/api' })
         const session = await auth.api.getSession({ headers: request.headers })
         if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
-        const taskIdNum = parseInt(taskId)
-        const { date, done } = body as { date: string; done: boolean }
+        const isNew = taskId === 'new'
+        const maybeNum = Number.parseInt(taskId)
+        const taskIdNum = Number.isNaN(maybeNum) ? null : maybeNum
+        const {
+          date,
+          done,
+          extraInfo,
+          groupId,
+          task: taskName,
+          defaultExtraInfo,
+        } = body as {
+          date: string
+          done: boolean
+          extraInfo?: string | null
+          groupId?: number
+          task?: string
+          defaultExtraInfo?: string | null
+        }
 
-        if (Number.isNaN(taskIdNum)) {
+        if (!isNew && (taskIdNum == null || Number.isNaN(taskIdNum))) {
           return status(400, { message: 'Invalid task ID' })
         }
         if (!date || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)) {
@@ -995,17 +1011,83 @@ const api = new Elysia({ prefix: '/api' })
         if (typeof done !== 'boolean') {
           return status(400, { message: 'Missing or invalid done parameter' })
         }
+        let taskRow: typeof tasksTable.$inferSelect | undefined
+        let createdTask: typeof tasksTable.$inferSelect | undefined
 
-        const task = await db
-          .select()
-          .from(tasksTable)
-          .where(
-            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
-          )
-          .limit(1)
+        if (isNew) {
+          // Validate creation fields
+          if (!groupId || Number.isNaN(Number(groupId))) {
+            return status(400, { message: 'groupId is required for new task' })
+          }
+          if (
+            !taskName ||
+            typeof taskName !== 'string' ||
+            taskName.trim().length === 0
+          ) {
+            return status(400, { message: 'task is required for new task' })
+          }
 
-        if (task.length === 0) {
-          return status(404, { message: 'Task not found' })
+          // Ensure group exists and belongs to user
+          const group = await db
+            .select()
+            .from(groupsTable)
+            .where(
+              and(eq(groupsTable.id, groupId), eq(groupsTable.userId, userId)),
+            )
+            .limit(1)
+          if (group.length === 0) {
+            return status(404, { message: 'Group not found' })
+          }
+
+          // Find or create the task by name within the group for this user
+          const existingTask = await db
+            .select()
+            .from(tasksTable)
+            .where(
+              and(
+                eq(tasksTable.groupId, groupId),
+                eq(tasksTable.task, taskName.trim()),
+                eq(tasksTable.userId, userId),
+              ),
+            )
+            .limit(1)
+
+          if (existingTask.length > 0) {
+            taskRow = existingTask[0]
+          } else {
+            const [newTask] = await db
+              .insert(tasksTable)
+              .values({
+                userId,
+                groupId,
+                task: taskName.trim(),
+                defaultExtraInfo:
+                  defaultExtraInfo == null ||
+                  `${defaultExtraInfo}`.trim() === ''
+                    ? null
+                    : `${defaultExtraInfo}`,
+              })
+              .returning()
+            taskRow = newTask
+            createdTask = newTask
+          }
+          // taskRow is set
+        } else {
+          const found = await db
+            .select()
+            .from(tasksTable)
+            .where(
+              and(
+                eq(tasksTable.id, taskIdNum as number),
+                eq(tasksTable.userId, userId),
+              ),
+            )
+            .limit(1)
+
+          if (found.length === 0) {
+            return status(404, { message: 'Task not found' })
+          }
+          taskRow = found[0]
         }
 
         const existingLog = await db
@@ -1013,7 +1095,10 @@ const api = new Elysia({ prefix: '/api' })
           .from(taskLogTable)
           .where(
             and(
-              eq(taskLogTable.taskId, taskIdNum),
+              eq(
+                taskLogTable.taskId,
+                (taskRow as typeof tasksTable.$inferSelect).id,
+              ),
               eq(taskLogTable.date, date),
             ),
           )
@@ -1021,33 +1106,67 @@ const api = new Elysia({ prefix: '/api' })
 
         let log: typeof taskLogTable.$inferSelect
         if (existingLog.length > 0) {
-          // Get the highest sortOrder for this date and done status (across all tasks)
-          const lastSortOrder = await db
-            .select({ maxSortOrder: taskLogTable.sortOrder })
-            .from(taskLogTable)
-            .where(
-              and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)),
-            )
-            .orderBy(desc(taskLogTable.sortOrder))
-            .limit(1)
+          // If done status is unchanged, update only extraInfo (if provided) and preserve sortOrder
+          const current = existingLog[0]
+          if (current.done === done) {
+            if (extraInfo !== undefined) {
+              const normalized =
+                extraInfo == null || `${extraInfo}`.trim() === ''
+                  ? null
+                  : `${extraInfo}`
+              const [updatedLog] = await db
+                .update(taskLogTable)
+                .set({ extraInfo: normalized })
+                .where(
+                  and(
+                    eq(taskLogTable.taskId, current.taskId),
+                    eq(taskLogTable.date, date),
+                  ),
+                )
+                .returning()
+              log = updatedLog
+            } else {
+              log = current
+            }
+          } else {
+            // Moving across columns: place at end of the target column
+            const lastSortOrder = await db
+              .select({ maxSortOrder: taskLogTable.sortOrder })
+              .from(taskLogTable)
+              .where(
+                and(eq(taskLogTable.date, date), eq(taskLogTable.done, done)),
+              )
+              .orderBy(desc(taskLogTable.sortOrder))
+              .limit(1)
 
-          const newSortOrder =
-            lastSortOrder.length > 0
-              ? (lastSortOrder[0].maxSortOrder || 0) + 1
-              : 1
+            const newSortOrder =
+              lastSortOrder.length > 0
+                ? (lastSortOrder[0].maxSortOrder || 0) + 1
+                : 1
 
-          // Set done status and update sortOrder to place at end of new list
-          const [updatedLog] = await db
-            .update(taskLogTable)
-            .set({ done, sortOrder: newSortOrder })
-            .where(
-              and(
-                eq(taskLogTable.taskId, taskIdNum),
-                eq(taskLogTable.date, date),
-              ),
-            )
-            .returning()
-          log = updatedLog
+            const updateFields: Partial<typeof taskLogTable.$inferInsert> = {
+              done,
+              sortOrder: newSortOrder,
+            }
+            if (extraInfo !== undefined) {
+              updateFields.extraInfo =
+                extraInfo == null || `${extraInfo}`.trim() === ''
+                  ? null
+                  : `${extraInfo}`
+            }
+
+            const [updatedLog] = await db
+              .update(taskLogTable)
+              .set(updateFields)
+              .where(
+                and(
+                  eq(taskLogTable.taskId, current.taskId),
+                  eq(taskLogTable.date, date),
+                ),
+              )
+              .returning()
+            log = updatedLog
+          }
         } else {
           // Get the highest sortOrder for this date and done status (across all tasks)
           const lastSortOrder = await db
@@ -1068,9 +1187,13 @@ const api = new Elysia({ prefix: '/api' })
             .insert(taskLogTable)
             .values({
               userId,
-              taskId: taskIdNum,
+              taskId: (taskRow as typeof tasksTable.$inferSelect).id,
               date,
               done,
+              extraInfo:
+                extraInfo == null || `${extraInfo}`.trim() === ''
+                  ? null
+                  : `${extraInfo}`,
               sortOrder: newSortOrder,
             })
             .returning()
@@ -1078,120 +1201,24 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         // Mirror to streak if linked
-        if (task[0].streakId != null) {
+        const linkedStreakId = (taskRow as typeof tasksTable.$inferSelect)
+          .streakId
+        if (linkedStreakId != null) {
           if (done === true) {
-            await ensureStreakDoneForDate(task[0].streakId, date, userId)
+            await ensureStreakDoneForDate(linkedStreakId, date, userId)
           } else {
-            await ensureStreakUndoneForDate(task[0].streakId, date, userId)
+            await ensureStreakUndoneForDate(linkedStreakId, date, userId)
           }
         }
 
-        return { log }
+        return createdTask ? { log, task: createdTask } : { log }
       } catch (err) {
         console.error('Error setting task log:', err)
         return status(500, { message: 'Internal server error' })
       }
     },
   )
-  .put(
-    '/tasks/:taskId/:date/note',
-    async ({ params: { taskId, date }, body, status, request }) => {
-      try {
-        const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return status(401, { message: 'Unauthorized' })
-        const userId = session.user.id
-        const taskIdNum = parseInt(taskId)
-        const { extraInfo } = body as { extraInfo: string }
-
-        if (Number.isNaN(taskIdNum)) {
-          return status(400, { message: 'Invalid task ID' })
-        }
-
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
-        }
-
-        const task = await db
-          .select()
-          .from(tasksTable)
-          .where(
-            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
-          )
-          .limit(1)
-
-        if (task.length === 0) {
-          return status(404, { message: 'Task not found' })
-        }
-
-        const existingLog = await db
-          .select()
-          .from(taskLogTable)
-          .where(
-            and(
-              eq(taskLogTable.taskId, taskIdNum),
-              eq(taskLogTable.date, date),
-            ),
-          )
-          .limit(1)
-
-        let log: typeof taskLogTable.$inferSelect
-        if (existingLog.length > 0) {
-          const [updatedLog] = await db
-            .update(taskLogTable)
-            .set({ extraInfo: extraInfo || null })
-            .where(
-              and(
-                eq(taskLogTable.taskId, taskIdNum),
-                eq(taskLogTable.date, date),
-              ),
-            )
-            .returning()
-          log = updatedLog
-        } else {
-          // Get the highest sortOrder for this task and date
-          const lastSortOrder = await db
-            .select({ maxSortOrder: taskLogTable.sortOrder })
-            .from(taskLogTable)
-            .where(
-              and(
-                eq(taskLogTable.taskId, taskIdNum),
-                eq(taskLogTable.date, date),
-              ),
-            )
-            .orderBy(desc(taskLogTable.sortOrder))
-            .limit(1)
-
-          const newSortOrder =
-            lastSortOrder.length > 0
-              ? (lastSortOrder[0].maxSortOrder || 0) + 1
-              : 1
-
-          const [newLog] = await db
-            .insert(taskLogTable)
-            .values({
-              userId,
-              taskId: taskIdNum,
-              date,
-              extraInfo: extraInfo || null,
-              done: true,
-              sortOrder: newSortOrder,
-            })
-            .returning()
-          log = newLog
-
-          // Newly creating a done log for a task that's linked to a streak → mirror into streak_log
-          if (task[0].streakId != null) {
-            await ensureStreakDoneForDate(task[0].streakId, date, userId)
-          }
-        }
-
-        return { log }
-      } catch (err) {
-        console.error('Error updating task log note:', err)
-        return status(500, { message: 'Internal server error' })
-      }
-    },
-  )
+  // Removed legacy: PUT /tasks/:taskId/:date/note (handled by POST /tasks/:taskId/log with extraInfo)
   .put(
     '/groups/:groupId/:date/note',
     async ({ params: { groupId, date }, body, status, request }) => {
@@ -1265,70 +1292,7 @@ const api = new Elysia({ prefix: '/api' })
       }
     },
   )
-  .post(
-    '/groups/:groupId/tasks',
-    async ({ params: { groupId }, body, status, request }) => {
-      try {
-        const session = await auth.api.getSession({ headers: request.headers })
-        if (!session) return status(401, { message: 'Unauthorized' })
-        const userId = session.user.id
-        const groupIdNum = parseInt(groupId)
-        const { task, defaultExtraInfo } = body as {
-          task: string
-          defaultExtraInfo?: string
-        }
-
-        if (Number.isNaN(groupIdNum)) {
-          return status(400, { message: 'Invalid group ID' })
-        }
-        if (!task || typeof task !== 'string' || task.trim().length === 0) {
-          return status(400, { message: 'Task name is required' })
-        }
-
-        // Check if group exists
-        const group = await db
-          .select()
-          .from(groupsTable)
-          .where(
-            and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)),
-          )
-          .limit(1)
-        if (group.length === 0) {
-          return status(404, { message: 'Group not found' })
-        }
-
-        // Check for duplicate task in group
-        const existing = await db
-          .select()
-          .from(tasksTable)
-          .where(
-            and(
-              eq(tasksTable.groupId, groupIdNum),
-              eq(tasksTable.task, task.trim()),
-            ),
-          )
-          .limit(1)
-        if (existing.length > 0) {
-          return status(409, { message: 'Task already exists in this group' })
-        }
-
-        const [newTask] = await db
-          .insert(tasksTable)
-          .values({
-            userId,
-            groupId: groupIdNum,
-            task: task.trim(),
-            defaultExtraInfo: defaultExtraInfo || null,
-          })
-          .returning()
-
-        return { task: newTask }
-      } catch (err) {
-        console.error('Error creating task:', err)
-        return status(500, { message: 'Internal server error' })
-      }
-    },
-  )
+  // Removed legacy: POST /groups/:groupId/tasks (handled by POST /tasks/new/log)
   .delete(
     '/tasks/:taskId/:date/log',
     async ({ params: { taskId, date }, status, request }) => {

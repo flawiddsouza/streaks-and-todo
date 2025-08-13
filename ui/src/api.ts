@@ -388,6 +388,7 @@ export const setTaskLog = async (
   taskId: number,
   date: string,
   done: boolean,
+  extraInfo?: string | null,
 ): Promise<ApiTaskLog> => {
   const response = await apiFetch(`/tasks/${taskId}/log`, {
     method: 'POST',
@@ -397,6 +398,8 @@ export const setTaskLog = async (
     body: JSON.stringify({
       date,
       done,
+      // send only if defined to avoid overwriting unintentionally
+      ...(extraInfo !== undefined ? { extraInfo } : {}),
     }),
   })
 
@@ -408,6 +411,43 @@ export const setTaskLog = async (
 
   const data = await response.json()
   return data.log
+}
+
+// Create-if-needed: use the same endpoint with a 'new' sentinel
+export const createTaskAndLog = async (
+  groupId: number,
+  task: string,
+  date: string,
+  done: boolean,
+  options?: { defaultExtraInfo?: string | null; extraInfo?: string | null },
+): Promise<{ task: ApiTask; log: ApiTaskLog }> => {
+  const response = await apiFetch(`/tasks/new/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      groupId,
+      task,
+      date,
+      done,
+      ...(options?.defaultExtraInfo !== undefined
+        ? { defaultExtraInfo: options.defaultExtraInfo }
+        : {}),
+      ...(options?.extraInfo !== undefined
+        ? { extraInfo: options.extraInfo }
+        : {}),
+    }),
+  })
+  if (!response.ok) {
+    let message = 'Failed to create task and set log'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('createTaskAndLog error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return { task: data.task, log: data.log }
 }
 
 export const updateStreakLogNote = async (
@@ -435,30 +475,7 @@ export const updateStreakLogNote = async (
   return data.log
 }
 
-export const updateTaskLogNote = async (
-  taskId: number,
-  date: string,
-  extraInfo: string,
-): Promise<ApiTaskLog> => {
-  const response = await apiFetch(`/tasks/${taskId}/${date}/note`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      extraInfo,
-    }),
-  })
-
-  if (!response.ok) {
-    const errorData = await response.json()
-    console.error('Failed to update task log note:', errorData)
-    throw new Error('Failed to update task log note')
-  }
-
-  const data = await response.json()
-  return data.log
-}
+// updateTaskLogNote removed in favor of setTaskLog(extraInfo)
 
 export const deleteTaskLog = async (
   taskId: number,
@@ -656,24 +673,7 @@ export const updateGroupNote = async (
   return await response.json()
 }
 
-export const createTaskForGroup = async (
-  groupId: number,
-  task: string,
-  defaultExtraInfo?: string,
-): Promise<ApiTask> => {
-  const response = await apiFetch(`/groups/${groupId}/tasks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ task, defaultExtraInfo }),
-  })
-  if (!response.ok) {
-    const errorData = await response.json()
-    console.error('Failed to create task:', errorData)
-    throw new Error(errorData.message || 'Failed to create task')
-  }
-  const data = await response.json()
-  return data.task
-}
+// createTaskForGroup removed in favor of createTaskAndLog
 
 export const updateTaskLogsOrder = async (
   date: string,

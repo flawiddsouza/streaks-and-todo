@@ -16,14 +16,13 @@ import {
 } from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
-  createTaskForGroup,
+  createTaskAndLog,
   deleteTaskLog,
   fetchGroupTasks,
   moveTaskLog,
   setTaskLog,
   type TaskGroup,
   updateGroupNote,
-  updateTaskLogNote,
 } from '../api'
 import './TodoGroupTable.css'
 
@@ -135,33 +134,7 @@ const buildTaskLookup = (taskData: TaskGroup[]) => {
   return lookup
 }
 
-const getOrCreateTask = async (
-  groupId: number,
-  taskName: string,
-  defaultExtraInfo: string | undefined,
-  onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>,
-): Promise<TaskGroup['tasks'][number] | null> => {
-  try {
-    let updatedGroup = await fetchGroupTasks(groupId)
-    if (!updatedGroup) return null
-
-    let found = updatedGroup.tasks.find((t) => t.task === taskName)
-
-    if (!found) {
-      await createTaskForGroup(groupId, taskName, defaultExtraInfo)
-      updatedGroup = await fetchGroupTasks(groupId)
-      if (!updatedGroup) return null
-
-      found = updatedGroup.tasks.find((t) => t.task === taskName)
-    }
-
-    onTaskDataChange([updatedGroup])
-    return found || null
-  } catch (err) {
-    console.error('Error getting or creating task:', err)
-    return null
-  }
-}
+// getOrCreateTask helper removed; new flow uses createTaskAndLog in one call
 
 const parseTaskWithExtraInfo = (
   taskText: string,
@@ -808,22 +781,47 @@ export default function TodoGroupTable({
   const addTaskToCell = useCallback(
     async (taskId: number, date: string, done: boolean, extraInfo?: string) => {
       try {
-        await setTaskLog(taskId, date, done)
-        if (extraInfo !== undefined) {
-          await updateTaskLogNote(taskId, date, extraInfo)
-        }
+        const log = await setTaskLog(taskId, date, done, extraInfo)
 
-        if (groupId) {
-          const updatedGroup = await fetchGroupTasks(groupId)
-          if (updatedGroup) {
-            onTaskDataChange([updatedGroup])
+        // Update local state minimally without full refetch
+        const taskLocation = taskLookup.get(taskId)
+        if (!taskLocation) {
+          if (groupId) {
+            const updatedGroup = await fetchGroupTasks(groupId)
+            if (updatedGroup) onTaskDataChange([updatedGroup])
           }
+          return
         }
+        const { groupIndex, taskIndex } = taskLocation
+        onTaskDataChange((prev) =>
+          updateTaskData(prev, groupIndex, taskIndex, (records) => {
+            const idx = records.findIndex((r) => r.date === date)
+            if (idx >= 0) {
+              const updated = [...records]
+              updated[idx] = {
+                ...updated[idx],
+                done: log.done,
+                extraInfo: log.extraInfo || undefined,
+                sortOrder: log.sortOrder,
+              }
+              return updated
+            }
+            return [
+              ...records,
+              {
+                date: log.date,
+                done: log.done,
+                extraInfo: log.extraInfo || undefined,
+                sortOrder: log.sortOrder,
+              },
+            ]
+          }),
+        )
       } catch (err) {
         console.error('Error adding task to cell:', err)
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId, onTaskDataChange, taskLookup],
   )
 
   const handleTaskCreationAndAddition = useCallback(
@@ -839,21 +837,69 @@ export default function TodoGroupTable({
         const { task: taskName, extraInfo } = parseTaskWithExtraInfo(
           inputValue.trim(),
         )
-        const task = await getOrCreateTask(
+        const { task, log } = await createTaskAndLog(
           groupId,
           taskName,
-          extraInfo,
-          onTaskDataChange,
+          date,
+          done,
+          { defaultExtraInfo: extraInfo || null, extraInfo: extraInfo || null },
         )
-        if (task) {
-          await addTaskToCell(task.id, date, done, extraInfo)
-        }
+
+        // Merge into local state without full refetch
+        onTaskDataChange((prev) => {
+          const copy = [...prev]
+          if (!copy[0]) return copy
+          const group = { ...copy[0] }
+          const existingIdx = group.tasks.findIndex((t) => t.id === task.id)
+          if (existingIdx >= 0) {
+            const t = { ...group.tasks[existingIdx] }
+            const recs = [...t.records]
+            const idx = recs.findIndex((r) => r.date === date)
+            if (idx >= 0) {
+              recs[idx] = {
+                ...recs[idx],
+                done: log.done,
+                extraInfo: log.extraInfo || undefined,
+                sortOrder: log.sortOrder,
+              }
+            } else {
+              recs.push({
+                date: log.date,
+                done: log.done,
+                extraInfo: log.extraInfo || undefined,
+                sortOrder: log.sortOrder,
+              })
+            }
+            t.records = recs
+            group.tasks[existingIdx] = t
+          } else {
+            group.tasks = [
+              ...group.tasks,
+              {
+                id: task.id,
+                task: task.task,
+                defaultExtraInfo: task.defaultExtraInfo,
+                records: [
+                  {
+                    date: log.date,
+                    done: log.done,
+                    extraInfo: log.extraInfo || undefined,
+                    sortOrder: log.sortOrder,
+                  },
+                ],
+              },
+            ]
+          }
+          copy[0] = group
+          return copy
+        })
+
         setInputValue('')
       } catch (err) {
         alert(`Failed to create task: ${(err as Error).message}`)
       }
     },
-    [groupId, onTaskDataChange, addTaskToCell],
+    [groupId, onTaskDataChange],
   )
 
   const getAvailableTasks = useCallback(
@@ -939,19 +985,44 @@ export default function TodoGroupTable({
   const updateTaskExtraInfo = useCallback(
     async (taskId: number, date: string, newExtraInfo: string) => {
       try {
-        await updateTaskLogNote(taskId, date, newExtraInfo)
+        // Use single endpoint to update extraInfo without reordering
+        const log = await setTaskLog(
+          taskId,
+          date /* done unchanged */,
+          (() => {
+            const loc = taskLookup.get(taskId)
+            if (!loc) return true
+            const rec = taskData[loc.groupIndex].tasks[
+              loc.taskIndex
+            ].records.find((r) => r.date === date)
+            return rec?.done ?? true
+          })(),
+          newExtraInfo,
+        )
 
-        if (groupId) {
-          const updatedGroup = await fetchGroupTasks(groupId)
-          if (updatedGroup) {
-            onTaskDataChange([updatedGroup])
-          }
-        }
+        const taskLocation = taskLookup.get(taskId)
+        if (!taskLocation) return
+        const { groupIndex, taskIndex } = taskLocation
+        onTaskDataChange((prev) =>
+          updateTaskData(prev, groupIndex, taskIndex, (records) => {
+            const updated = [...records]
+            const idx = updated.findIndex((r) => r.date === date)
+            if (idx >= 0) {
+              updated[idx] = {
+                ...updated[idx],
+                extraInfo: log.extraInfo || undefined,
+                // sortOrder should remain the same per server logic when done unchanged
+                sortOrder: log.sortOrder,
+              }
+            }
+            return updated
+          }),
+        )
       } catch (err) {
         console.error('Error updating task extra info:', err)
       }
     },
-    [groupId, onTaskDataChange],
+    [taskLookup, taskData, onTaskDataChange],
   )
 
   const handleEditTask = useCallback(
