@@ -19,11 +19,11 @@ import {
   createTaskForGroup,
   deleteTaskLog,
   fetchGroupTasks,
+  moveTaskLog,
   setTaskLog,
   type TaskGroup,
   updateGroupNote,
   updateTaskLogNote,
-  updateTaskLogsOrder,
 } from '../api'
 import './TodoGroupTable.css'
 
@@ -1013,222 +1013,39 @@ export default function TodoGroupTable({
     ) => {
       try {
         if (!groupId) return
-
-        // If it's a cross-date move, we need to handle it differently
-        if (sourceDate !== targetDate) {
-          const sourceTaskData = allTasks.find((t) => t.id === sourceTaskId)
-          if (!sourceTaskData) return
-          const sourceRecord = sourceTaskData.records.find(
-            (r) => r.date === sourceDate,
-          )
-          if (!sourceRecord) return
-          const targetCell = dateRows.find((row) => row.date === targetDate)
-          if (!targetCell) return
-          let finalTargetDone = false
-          if (targetDone !== undefined) {
-            finalTargetDone = targetDone
-          } else if (targetTaskId !== -1) {
-            const isInDone = targetCell.doneTasks.some(
+        // Determine target done status using current rows if not provided
+        const targetCell = dateRows.find((row) => row.date === targetDate)
+        let finalTargetDone: boolean | undefined = targetDone
+        if (!targetCell && sourceDate === targetDate) return
+        if (finalTargetDone === undefined) {
+          if (targetTaskId !== -1 && targetCell) {
+            finalTargetDone = targetCell.doneTasks.some(
               (t) => t.taskId === targetTaskId,
             )
-            finalTargetDone = isInDone
           } else {
-            finalTargetDone = sourceRecord.done
-          }
-          await setTaskLog(sourceTaskId, targetDate, finalTargetDone)
-          if (sourceRecord.extraInfo) {
-            await updateTaskLogNote(
-              sourceTaskId,
-              targetDate,
-              sourceRecord.extraInfo,
-            )
-          }
-          await deleteTaskLog(sourceTaskId, sourceDate)
-          if (targetTaskId !== -1) {
-            const targetTasks = finalTargetDone
-              ? targetCell.doneTasks
-              : targetCell.todoTasks
-            const targetIndex = targetTasks.findIndex(
-              (t) => t.taskId === targetTaskId,
-            )
-            if (targetIndex !== -1) {
-              const insertIndex =
-                position === 'before' ? targetIndex : targetIndex + 1
-              const reorderData = [...targetTasks]
-              reorderData.splice(insertIndex, 0, {
-                taskId: sourceTaskId,
-                task: sourceTaskData.task,
-                extraInfo: sourceRecord.extraInfo,
-                sortOrder: 0,
-              })
-              const taskLogsOrder = reorderData.map((task, index) => ({
-                taskId: task.taskId,
-                sortOrder: index + 1,
-              }))
-              await updateTaskLogsOrder(targetDate, taskLogsOrder)
-            }
-          }
-        } else {
-          // Same date move - handle reordering within the same date
-          const dateRow = dateRows.find((row) => row.date === targetDate)
-          if (!dateRow) return
-          const sourceInDone = dateRow.doneTasks.some(
-            (t) => t.taskId === sourceTaskId,
-          )
-          // If dropping into an empty column (targetTaskId === -1) and moving between columns
-          if (
-            targetTaskId === -1 &&
-            (sourceInDone === true || sourceInDone === false)
-          ) {
-            const targetInDone = !sourceInDone
-            // Only handle if moving between columns
-            await setTaskLog(sourceTaskId, targetDate, targetInDone)
-            // After changing done status, set sortOrder to 1 (first item in new column)
-            // Get the updated group data
-            const updatedGroup = await fetchGroupTasks(groupId)
-            if (!updatedGroup) return
-            const allTasks = updatedGroup.tasks.map((task) => ({
-              id: task.id,
-              task: task.task,
-              groupName: updatedGroup.name,
-              defaultExtraInfo: task.defaultExtraInfo,
-              records: task.records,
-            }))
-            const doneTasks: TaskItem[] = []
-            const todoTasks: TaskItem[] = []
-            allTasks.forEach((task) => {
-              const records = task.records.filter(
-                (record) => record.date === targetDate,
-              )
-              records.forEach((record) => {
-                const taskItem = {
-                  taskId: task.id,
-                  task: task.task,
-                  extraInfo: record.extraInfo,
-                  sortOrder: record.sortOrder,
-                }
-                if (record.done) {
-                  doneTasks.push(taskItem)
-                } else {
-                  todoTasks.push(taskItem)
-                }
-              })
-            })
-            doneTasks.sort((a, b) => a.sortOrder - b.sortOrder)
-            todoTasks.sort((a, b) => a.sortOrder - b.sortOrder)
-            const targetTasks = targetInDone ? doneTasks : todoTasks
-            // Place the moved task as the first item
-            const reorderedTasks = [
-              { taskId: sourceTaskId, sortOrder: 1 },
-              ...targetTasks
-                .filter((t) => t.taskId !== sourceTaskId)
-                .map((t, idx) => ({
-                  taskId: t.taskId,
-                  sortOrder: idx + 2,
-                })),
-            ]
-            await updateTaskLogsOrder(targetDate, reorderedTasks)
-          } else if (targetTaskId !== -1) {
-            const targetInDone = dateRow.doneTasks.some(
-              (t) => t.taskId === targetTaskId,
-            )
-            // If moving between columns, update the done status and move to correct column
-            if (sourceInDone !== targetInDone) {
-              await setTaskLog(sourceTaskId, targetDate, targetInDone)
-              // After changing done status, need to update sort order in the new column
-              // Get the updated group data
-              const updatedGroup = await fetchGroupTasks(groupId)
-              if (!updatedGroup) return
-              const updatedDateRow = (() => {
-                const allTasks = updatedGroup.tasks.map((task) => ({
-                  id: task.id,
-                  task: task.task,
-                  groupName: updatedGroup.name,
-                  defaultExtraInfo: task.defaultExtraInfo,
-                  records: task.records,
-                }))
-                const doneTasks: TaskItem[] = []
-                const todoTasks: TaskItem[] = []
-                allTasks.forEach((task) => {
-                  const records = task.records.filter(
-                    (record) => record.date === targetDate,
-                  )
-                  records.forEach((record) => {
-                    const taskItem = {
-                      taskId: task.id,
-                      task: task.task,
-                      extraInfo: record.extraInfo,
-                      sortOrder: record.sortOrder,
-                    }
-                    if (record.done) {
-                      doneTasks.push(taskItem)
-                    } else {
-                      todoTasks.push(taskItem)
-                    }
-                  })
-                })
-                doneTasks.sort((a, b) => a.sortOrder - b.sortOrder)
-                todoTasks.sort((a, b) => a.sortOrder - b.sortOrder)
-                return targetInDone ? doneTasks : todoTasks
-              })()
-              const targetTasks = updatedDateRow
-              const targetIndex = targetTasks.findIndex(
-                (t) => t.taskId === targetTaskId,
-              )
-              const sourceIndex = targetTasks.findIndex(
+            // fallback: infer from source column on that date
+            const sameDate = sourceDate === targetDate
+            if (sameDate && targetCell) {
+              const inDone = targetCell.doneTasks.some(
                 (t) => t.taskId === sourceTaskId,
               )
-              let insertIndex =
-                position === 'before' ? targetIndex : targetIndex + 1
-              const reordered = [...targetTasks]
-              if (sourceIndex !== -1) {
-                reordered.splice(sourceIndex, 1)
-                if (sourceIndex < insertIndex) insertIndex--
-              }
-              reordered.splice(
-                insertIndex,
-                0,
-                reordered.find((t) => t.taskId === sourceTaskId) || {
-                  taskId: sourceTaskId,
-                  task: '',
-                  extraInfo: '',
-                  sortOrder: 0,
-                },
-              )
-              const reorderedTasks = reordered.map((task, idx) => ({
-                taskId: task.taskId,
-                sortOrder: idx + 1,
-              }))
-              await updateTaskLogsOrder(targetDate, reorderedTasks)
+              finalTargetDone = inDone
             } else {
-              // Same column reorder
-              const tasksToReorder = targetInDone
-                ? dateRow.doneTasks
-                : dateRow.todoTasks
-              const sourceIndex = tasksToReorder.findIndex(
-                (t) => t.taskId === sourceTaskId,
-              )
-              const targetIndex = tasksToReorder.findIndex(
-                (t) => t.taskId === targetTaskId,
-              )
-              if (sourceIndex === -1 || targetIndex === -1) return
-              const updatedTasks = [...tasksToReorder]
-              const [movedItem] = updatedTasks.splice(sourceIndex, 1)
-              const insertIndex =
-                position === 'before' ? targetIndex : targetIndex + 1
-              updatedTasks.splice(
-                sourceIndex < targetIndex ? insertIndex - 1 : insertIndex,
-                0,
-                movedItem,
-              )
-              const reorderedTasks = updatedTasks.map((task, index) => ({
-                taskId: task.taskId,
-                sortOrder: index + 1,
-              }))
-              await updateTaskLogsOrder(targetDate, reorderedTasks)
+              finalTargetDone = false
             }
           }
         }
+
+        // Single API to move
+        await moveTaskLog({
+          taskId: sourceTaskId,
+          fromDate: sourceDate,
+          toDate: targetDate,
+          toDone: Boolean(finalTargetDone),
+          targetTaskId: targetTaskId === -1 ? undefined : targetTaskId,
+          position,
+        })
+
         // Refresh the data to reflect the new order
         const updatedGroup = await fetchGroupTasks(groupId)
         if (updatedGroup) {
@@ -1238,7 +1055,7 @@ export default function TodoGroupTable({
         console.error('Error reordering tasks:', err)
       }
     },
-    [groupId, onTaskDataChange, allTasks, dateRows],
+    [groupId, onTaskDataChange, dateRows],
   )
 
   const handlePastePinned = useCallback(

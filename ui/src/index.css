@@ -28,7 +28,9 @@ body {
   margin: 0;
 }
 
-button, input, select {
+button,
+input,
+select {
   font-family: inherit;
 }
 

@@ -724,3 +724,30 @@ export const updateTask = async (
   const data = await response.json()
   return data.task
 }
+
+export const moveTaskLog = async (payload: {
+  taskId: number
+  fromDate: string
+  toDate: string
+  toDone: boolean
+  targetTaskId?: number
+  position?: 'before' | 'after'
+  extraInfo?: string | null
+}): Promise<ApiTaskLog> => {
+  const response = await apiFetch(`/tasks/move-log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    let message = 'Failed to move task log'
+    try {
+      const errorData = await response.json()
+      message = errorData.message || message
+      console.error('Failed to move task log:', errorData)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return data.log
+}

@@ -1438,6 +1438,301 @@ const api = new Elysia({ prefix: '/api' })
       return status(500, { message: 'Internal server error' })
     }
   })
+  // Atomically move a task log across dates/columns and/or reposition relative to another task
+  .post('/tasks/move-log', async ({ body, status, request }) => {
+    try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return status(401, { message: 'Unauthorized' })
+      const userId = session.user.id
+
+      const {
+        taskId,
+        fromDate,
+        toDate,
+        toDone,
+        targetTaskId,
+        position,
+        extraInfo,
+      } = body as {
+        taskId: number
+        fromDate: string
+        toDate: string
+        toDone: boolean
+        targetTaskId?: number
+        position?: 'before' | 'after'
+        extraInfo?: string | null
+      }
+
+      if (!taskId || Number.isNaN(Number(taskId)))
+        return status(400, { message: 'Invalid task ID' })
+      if (!fromDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate))
+        return status(400, { message: 'Invalid fromDate' })
+      if (!toDate || !/^\d{4}-\d{2}-\d{2}$/.test(toDate))
+        return status(400, { message: 'Invalid toDate' })
+
+      const task = await db
+        .select()
+        .from(tasksTable)
+        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)))
+        .limit(1)
+      if (task.length === 0) return status(404, { message: 'Task not found' })
+
+      // Helper: load ordered list for a date+done
+      const getList = async (date: string, done: boolean) => {
+        return await db
+          .select()
+          .from(taskLogTable)
+          .where(
+            and(
+              eq(taskLogTable.date, date),
+              eq(taskLogTable.done, done),
+              eq(taskLogTable.userId, userId),
+            ),
+          )
+          .orderBy(taskLogTable.sortOrder)
+      }
+
+      // Helper: write contiguous sort order for a list of taskIds at date+done
+      const writeOrder = async (
+        date: string,
+        done: boolean,
+        orderedTaskIds: number[],
+      ) => {
+        for (let i = 0; i < orderedTaskIds.length; i++) {
+          const id = orderedTaskIds[i]
+          await db
+            .update(taskLogTable)
+            .set({ sortOrder: i + 1 })
+            .where(
+              and(
+                eq(taskLogTable.taskId, id),
+                eq(taskLogTable.date, date),
+                eq(taskLogTable.done, done),
+                eq(taskLogTable.userId, userId),
+              ),
+            )
+        }
+      }
+
+      // Fetch source log (if any)
+      const existingSource = await db
+        .select()
+        .from(taskLogTable)
+        .where(
+          and(eq(taskLogTable.taskId, taskId), eq(taskLogTable.date, fromDate)),
+        )
+        .limit(1)
+
+      const sourceLog = existingSource[0]
+      const sourceDone = sourceLog?.done ?? false
+
+      const sameDate = fromDate === toDate
+      const togglingColumn = sourceLog ? sourceLog.done !== toDone : true
+
+      // Ensure we have a current extraInfo fallback
+      const finalExtraInfo =
+        extraInfo !== undefined ? extraInfo : (sourceLog?.extraInfo ?? null)
+
+      // When reordering relative to a target task, compute the destination order array
+      const placeInList = (
+        currentOrder: number[],
+        sourceTaskId: number,
+        tgtTaskId?: number,
+        pos?: 'before' | 'after',
+      ) => {
+        const arr = currentOrder.filter((id) => id !== sourceTaskId)
+        if (tgtTaskId == null || !arr.includes(tgtTaskId)) {
+          arr.push(sourceTaskId)
+          return arr
+        }
+        const idx = arr.indexOf(tgtTaskId)
+        const insertAt = pos === 'before' ? idx : idx + 1
+        arr.splice(insertAt, 0, sourceTaskId)
+        return arr
+      }
+
+      if (sameDate) {
+        if (togglingColumn) {
+          // Move from one column to the other on the same date
+          // 1) Update the source log's done/extraInfo and set temporary sortOrder
+          if (sourceLog) {
+            await db
+              .update(taskLogTable)
+              .set({ done: toDone, extraInfo: finalExtraInfo })
+              .where(
+                and(
+                  eq(taskLogTable.taskId, taskId),
+                  eq(taskLogTable.date, fromDate),
+                ),
+              )
+
+            // Re-pack old column
+            const oldList = await getList(fromDate, sourceDone)
+            await writeOrder(
+              fromDate,
+              sourceDone,
+              oldList.map((l) => l.taskId).filter((id) => id !== taskId),
+            )
+
+            // Build target order
+            const targetList = await getList(toDate, toDone)
+            const ordered = placeInList(
+              targetList.map((l) => l.taskId),
+              taskId,
+              targetTaskId,
+              position,
+            )
+            await writeOrder(toDate, toDone, ordered)
+          } else {
+            // No source log; create directly in target column
+            const targetList = await getList(toDate, toDone)
+            const ordered = placeInList(
+              targetList.map((l) => l.taskId),
+              taskId,
+              targetTaskId,
+              position,
+            )
+            // insert or upsert the target log first
+            const existsTarget = await db
+              .select()
+              .from(taskLogTable)
+              .where(
+                and(
+                  eq(taskLogTable.taskId, taskId),
+                  eq(taskLogTable.date, toDate),
+                ),
+              )
+              .limit(1)
+            if (existsTarget.length > 0) {
+              await db
+                .update(taskLogTable)
+                .set({ done: toDone, extraInfo: finalExtraInfo })
+                .where(
+                  and(
+                    eq(taskLogTable.taskId, taskId),
+                    eq(taskLogTable.date, toDate),
+                  ),
+                )
+            } else {
+              await db.insert(taskLogTable).values({
+                userId,
+                taskId,
+                date: toDate,
+                done: toDone,
+                extraInfo: finalExtraInfo,
+                sortOrder: 0,
+              })
+            }
+            await writeOrder(toDate, toDone, ordered)
+          }
+        } else {
+          // Same column reorder only
+          const list = await getList(toDate, toDone)
+          const ordered = placeInList(
+            list.map((l) => l.taskId),
+            taskId,
+            targetTaskId,
+            position,
+          )
+          await writeOrder(toDate, toDone, ordered)
+        }
+
+        // mirror streak
+        if (task[0].streakId != null) {
+          if (toDone === true) {
+            await ensureStreakDoneForDate(task[0].streakId, toDate, userId)
+          } else {
+            await ensureStreakUndoneForDate(task[0].streakId, toDate, userId)
+          }
+        }
+      } else {
+        // Cross-date move
+        const src = sourceLog
+        const srcDone = src?.done ?? false
+
+        // Build destination order on target date+toDone (excluding source if present)
+        const targetList = await getList(toDate, toDone)
+        const ordered = placeInList(
+          targetList.map((l) => l.taskId),
+          taskId,
+          targetTaskId,
+          position,
+        )
+
+        // Upsert target log
+        const existsTarget = await db
+          .select()
+          .from(taskLogTable)
+          .where(
+            and(eq(taskLogTable.taskId, taskId), eq(taskLogTable.date, toDate)),
+          )
+          .limit(1)
+        if (existsTarget.length > 0) {
+          await db
+            .update(taskLogTable)
+            .set({ done: toDone, extraInfo: finalExtraInfo })
+            .where(
+              and(
+                eq(taskLogTable.taskId, taskId),
+                eq(taskLogTable.date, toDate),
+              ),
+            )
+        } else {
+          await db.insert(taskLogTable).values({
+            userId,
+            taskId,
+            date: toDate,
+            done: toDone,
+            extraInfo: finalExtraInfo,
+            sortOrder: 0,
+          })
+        }
+        await writeOrder(toDate, toDone, ordered)
+
+        // Delete source log and repack its column
+        if (src) {
+          await db
+            .delete(taskLogTable)
+            .where(
+              and(
+                eq(taskLogTable.taskId, taskId),
+                eq(taskLogTable.date, fromDate),
+              ),
+            )
+          const srcList = await getList(fromDate, srcDone)
+          await writeOrder(
+            fromDate,
+            srcDone,
+            srcList.map((l) => l.taskId),
+          )
+        }
+
+        // mirror streak
+        if (task[0].streakId != null) {
+          if (toDone === true) {
+            await ensureStreakDoneForDate(task[0].streakId, toDate, userId)
+          }
+          if (src?.done === true) {
+            await ensureStreakUndoneForDate(task[0].streakId, fromDate, userId)
+          }
+        }
+      }
+
+      // Return the target log for convenience
+      const [resultLog] = await db
+        .select()
+        .from(taskLogTable)
+        .where(
+          and(eq(taskLogTable.taskId, taskId), eq(taskLogTable.date, toDate)),
+        )
+        .limit(1)
+
+      return { message: 'Moved', log: resultLog }
+    } catch (err) {
+      console.error('Error moving task log:', err)
+      return status(500, { message: 'Internal server error' })
+    }
+  })
   .post(
     '/groups/:groupId/pin-groups',
     async ({ params: { groupId }, body, status, request }) => {
