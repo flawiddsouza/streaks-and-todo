@@ -1261,7 +1261,9 @@ export default function TodoGroupTable({
           alert('Expected an array of pinned tasks')
           return
         }
-        const byId = new Set(availableTasksForCell.map((t) => t.id))
+
+        const dateRow = dateRows.find((row) => row.date === date)
+        if (!dateRow) return
 
         // Accept objects that have taskId (preferred) or task name fallback
         const idByName = new Map(
@@ -1277,7 +1279,7 @@ export default function TodoGroupTable({
           const taskNameVal = obj.task
           const extraInfoVal = obj.extraInfo
 
-          if (typeof taskIdVal === 'number' && byId.has(taskIdVal)) {
+          if (typeof taskIdVal === 'number') {
             id = taskIdVal
           } else if (
             typeof taskNameVal === 'string' &&
@@ -1297,7 +1299,7 @@ export default function TodoGroupTable({
         alert('Failed to paste pinned tasks')
       }
     },
-    [addTaskToCell],
+    [addTaskToCell, dateRows],
   )
 
   if (loading) {
