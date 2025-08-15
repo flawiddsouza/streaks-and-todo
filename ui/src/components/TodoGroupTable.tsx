@@ -522,6 +522,7 @@ function TaskColumn({
                 {...getInputProps({
                   placeholder,
                   className: 'todo-combobox-input',
+                  enterKeyHint: 'enter',
                   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
                     if (e.key === 'Home' || e.key === 'End') {
                       // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
