@@ -254,6 +254,7 @@ function TaskItemComponent({
   const [isDraggedOver, setIsDraggedOver] = useState(false)
 
   useEffect(() => {
+    if (isEditing) return
     const element = dragRef.current
     if (!element) return
 
@@ -293,7 +294,7 @@ function TaskItemComponent({
         },
       }),
     )
-  }, [taskLog, date, onReorder])
+  }, [taskLog, date, onReorder, isEditing])
 
   if (isEditing) {
     return (
