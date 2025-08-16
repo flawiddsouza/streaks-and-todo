@@ -152,6 +152,7 @@
   padding: 0;
   list-style: none;
   border-top: none;
+  white-space: break-spaces;
 }
 
 .todo-combobox-menu:empty {
@@ -241,6 +242,7 @@
 .notes-editable {
   outline: none;
   padding: 2px 5px;
+  white-space: break-spaces;
 }
 
 /* Input + action button container */

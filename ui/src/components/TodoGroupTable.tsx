@@ -4,7 +4,7 @@ import {
   dropTargetForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
 import dayjs from 'dayjs'
-import Downshift from 'downshift'
+import Downshift, { type StateChangeOptions } from 'downshift'
 import {
   type Dispatch,
   type SetStateAction,
@@ -444,6 +444,70 @@ function TaskColumn({
 }: TaskColumnProps) {
   const [inputValue, setInputValue] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLUListElement | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // Find nearest scrollable ancestor
+  const findScrollAncestor = useCallback(
+    (el: Element | null): Element | null => {
+      let node: Element | null = el
+      while (node && node !== document.documentElement) {
+        const style = getComputedStyle(node)
+        const overflowY = style.overflowY
+        if (overflowY === 'auto' || overflowY === 'scroll') return node
+        node = node.parentElement
+      }
+      return document.scrollingElement || document.documentElement
+    },
+    [],
+  )
+
+  const ensureMenuVisible = useCallback(() => {
+    const menuEl = menuRef.current
+    if (!menuEl) return
+
+    // Prefer scrolling the nearest overflow container of the list (the virtuoso scroller)
+    const scrollAncestor = findScrollAncestor(listRef.current || menuEl)
+
+    const menuRect = menuEl.getBoundingClientRect()
+    if (
+      scrollAncestor === document.documentElement ||
+      scrollAncestor === document.scrollingElement
+    ) {
+      // Use window scroll
+      const viewportHeight = window.innerHeight
+      if (menuRect.bottom > viewportHeight) {
+        window.scrollBy({
+          top: menuRect.bottom - viewportHeight + 8,
+          behavior: 'smooth',
+        })
+      } else if (menuRect.top < 0) {
+        window.scrollBy({ top: menuRect.top - 8, behavior: 'smooth' })
+      }
+      return
+    }
+
+    const container = scrollAncestor as HTMLElement
+    const containerRect = container.getBoundingClientRect()
+
+    if (menuRect.bottom > containerRect.bottom) {
+      const delta = menuRect.bottom - containerRect.bottom + 8
+      container.scrollTop += delta
+    } else if (menuRect.top < containerRect.top) {
+      const delta = menuRect.top - containerRect.top - 8
+      container.scrollTop += delta
+    }
+  }, [findScrollAncestor])
+
+  useEffect(() => {
+    if (menuOpen) {
+      // Wait for menu to render and layout
+      requestAnimationFrame(() => {
+        // Additional frame to be safe
+        requestAnimationFrame(() => ensureMenuVisible())
+      })
+    }
+  }, [menuOpen, ensureMenuVisible])
 
   return (
     <div ref={listRef} className="todo-list">
@@ -509,6 +573,12 @@ function TaskColumn({
         }
         selectedItem={null}
         itemToString={(item) => (item ? item.task : '')}
+        onStateChange={(changes: StateChangeOptions<FlatTask>) => {
+          // Track menu open state so we can ensure visibility
+          if (changes.isOpen !== undefined) {
+            setMenuOpen(Boolean(changes.isOpen))
+          }
+        }}
       >
         {({
           getInputProps,
@@ -548,6 +618,10 @@ function TaskColumn({
                 {...getMenuProps()}
                 className="todo-combobox-menu"
                 style={{ position: 'absolute', left: 0, right: 0 }}
+                ref={(el) => {
+                  // keep a ref to the rendered menu for visibility adjustments
+                  menuRef.current = el
+                }}
               >
                 {isOpen &&
                   inputValue.trim() !== '' &&
