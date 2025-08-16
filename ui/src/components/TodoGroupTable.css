@@ -153,6 +153,7 @@
   list-style: none;
   border-top: none;
   white-space: break-spaces;
+  font-size: 14px;
 }
 
 .todo-combobox-menu:empty {

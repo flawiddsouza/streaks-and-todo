@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
   createTaskAndLog,
@@ -446,68 +447,48 @@ function TaskColumn({
   const listRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLUListElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
-
-  // Find nearest scrollable ancestor
-  const findScrollAncestor = useCallback(
-    (el: Element | null): Element | null => {
-      let node: Element | null = el
-      while (node && node !== document.documentElement) {
-        const style = getComputedStyle(node)
-        const overflowY = style.overflowY
-        if (overflowY === 'auto' || overflowY === 'scroll') return node
-        node = node.parentElement
-      }
-      return document.scrollingElement || document.documentElement
-    },
-    [],
-  )
-
-  const ensureMenuVisible = useCallback(() => {
-    const menuEl = menuRef.current
-    if (!menuEl) return
-
-    // Prefer scrolling the nearest overflow container of the list (the virtuoso scroller)
-    const scrollAncestor = findScrollAncestor(listRef.current || menuEl)
-
-    const menuRect = menuEl.getBoundingClientRect()
-    if (
-      scrollAncestor === document.documentElement ||
-      scrollAncestor === document.scrollingElement
-    ) {
-      // Use window scroll
-      const viewportHeight = window.innerHeight
-      if (menuRect.bottom > viewportHeight) {
-        window.scrollBy({
-          top: menuRect.bottom - viewportHeight + 8,
-          behavior: 'smooth',
-        })
-      } else if (menuRect.top < 0) {
-        window.scrollBy({ top: menuRect.top - 8, behavior: 'smooth' })
-      }
-      return
-    }
-
-    const container = scrollAncestor as HTMLElement
-    const containerRect = container.getBoundingClientRect()
-
-    if (menuRect.bottom > containerRect.bottom) {
-      const delta = menuRect.bottom - containerRect.bottom + 8
-      container.scrollTop += delta
-    } else if (menuRect.top < containerRect.top) {
-      const delta = menuRect.top - containerRect.top - 8
-      container.scrollTop += delta
-    }
-  }, [findScrollAncestor])
+  // input ref so we can anchor the portal menu to its position
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [menuPos, setMenuPos] = useState<{
+    top: number
+    left: number
+    width: number
+  } | null>(null)
 
   useEffect(() => {
-    if (menuOpen) {
-      // Wait for menu to render and layout
-      requestAnimationFrame(() => {
-        // Additional frame to be safe
-        requestAnimationFrame(() => ensureMenuVisible())
+    const updatePos = () => {
+      const el = inputRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      setMenuPos({
+        top: rect.bottom + window.scrollY,
+        left: rect.left + window.scrollX,
+        width: rect.width,
       })
     }
-  }, [menuOpen, ensureMenuVisible])
+
+    if (menuOpen) {
+      // position immediately and on next frames to ensure layout settled
+      requestAnimationFrame(updatePos)
+      // also update on scroll/resize
+      window.addEventListener('resize', updatePos)
+      window.addEventListener('scroll', updatePos, true)
+      // Focus first menu item for keyboard users if available
+      requestAnimationFrame(() => {
+        const menu = menuRef.current
+        if (menu) {
+          const first = menu.querySelector('li') as HTMLElement | null
+          first?.focus()
+        }
+      })
+    }
+
+    return () => {
+      window.removeEventListener('resize', updatePos)
+      window.removeEventListener('scroll', updatePos, true)
+      // don't clear menuPos here; keep it for a frame if closed
+    }
+  }, [menuOpen])
 
   return (
     <div ref={listRef} className="todo-list">
@@ -586,80 +567,129 @@ function TaskColumn({
           getMenuProps,
           isOpen,
           highlightedIndex,
-        }) => (
-          <div className="todo-input-wrap">
-            <div className="todo-input-inner">
-              <input
-                {...getInputProps({
-                  placeholder,
-                  className: 'todo-combobox-input',
-                  enterKeyHint: 'enter',
-                  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key === 'Home' || e.key === 'End') {
-                      // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
-                      ;(e.nativeEvent as any).preventDownshiftDefault = true
-                    }
-                    // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
-                    if (
-                      e.key === 'Enter' &&
-                      isOpen &&
-                      highlightedIndex != null
-                    ) {
-                      return
-                    }
-                    if (e.key === 'Enter') {
-                      onEnter(inputValue, () => setInputValue(''))
-                    }
-                  },
-                  spellCheck: false,
-                })}
-              />
-              <ul
-                {...getMenuProps()}
-                className="todo-combobox-menu"
-                style={{ position: 'absolute', left: 0, right: 0 }}
-                ref={(el) => {
-                  // keep a ref to the rendered menu for visibility adjustments
-                  menuRef.current = el
-                }}
-              >
-                {isOpen &&
-                  inputValue.trim() !== '' &&
-                  availableTasks
-                    .filter((item) =>
-                      item.task
-                        .toLowerCase()
-                        .includes(inputValue.toLowerCase()),
-                    )
-                    .map((item, index) => (
-                      <li
-                        {...getItemProps({ item, index })}
-                        key={item.id}
-                        className={
-                          highlightedIndex === index ? 'highlighted' : ''
-                        }
+        }) => {
+          // When rendering the Downshift menu into a portal we must suppress
+          // Downshift's ref validation because the element will be mounted
+          // outside the React tree where Downshift is rendered.
+          const _menuProps = getMenuProps(
+            {},
+            { suppressRefError: true },
+          ) as unknown
+
+          // Extract Downshift's ref (must be passed explicitly — spreading
+          // props does not apply the special `ref` prop) and the rest of props.
+          const dsRef = (
+            _menuProps as {
+              ref?:
+                | ((el: HTMLUListElement | null) => void)
+                | { current: HTMLUListElement | null }
+                | null
+            }
+          ).ref
+          const restMenuProps = _menuProps as Record<string, unknown>
+
+          // Create a combined ref that updates our local menuRef and forwards
+          // to Downshift's ref (function or ref object). Use HTMLUListElement
+          // for correct typing.
+          const combinedMenuRef = (el: HTMLUListElement | null) => {
+            menuRef.current = el
+            if (typeof dsRef === 'function') dsRef(el)
+            else if (dsRef && 'current' in dsRef) {
+              ;(dsRef as { current: HTMLUListElement | null }).current = el
+            }
+          }
+
+          return (
+            <div className="todo-input-wrap">
+              <div className="todo-input-inner">
+                <input
+                  {...getInputProps({
+                    placeholder,
+                    className: 'todo-combobox-input',
+                    enterKeyHint: 'enter',
+                    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                      if (e.key === 'Home' || e.key === 'End') {
+                        // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
+                        ;(e.nativeEvent as any).preventDownshiftDefault = true
+                      }
+                      // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
+                      if (
+                        e.key === 'Enter' &&
+                        isOpen &&
+                        highlightedIndex != null
+                      ) {
+                        return
+                      }
+                      if (e.key === 'Enter') {
+                        onEnter(inputValue, () => setInputValue(''))
+                      }
+                    },
+                    spellCheck: false,
+                  })}
+                  ref={inputRef}
+                />
+                {/* Render menu into a portal so it does not affect table/row layout */}
+                {isOpen && menuPos
+                  ? createPortal(
+                      <ul
+                        {...(restMenuProps as JSX.IntrinsicElements['ul'])}
+                        ref={combinedMenuRef}
+                        className="todo-combobox-menu"
+                        style={{
+                          position: 'absolute',
+                          top: menuPos.top,
+                          left: menuPos.left,
+                          width: menuPos.width,
+                          maxHeight: 280,
+                          overflow: 'auto',
+                          zIndex: 2000,
+                          boxShadow: '0 6px 18px rgba(0,0,0,0.15)',
+                          background: 'white',
+                          borderRadius: 4,
+                        }}
                       >
-                        {item.task}
-                        {item.defaultExtraInfo && (
-                          <span className="task-extra-info">
-                            {' '}
-                            ({item.defaultExtraInfo})
-                          </span>
-                        )}
-                      </li>
-                    ))}
-              </ul>
+                        {inputValue.trim() !== '' &&
+                          availableTasks
+                            .filter((item) =>
+                              item.task
+                                .toLowerCase()
+                                .includes(inputValue.toLowerCase()),
+                            )
+                            .map((item, index) => (
+                              <li
+                                {...getItemProps({ item, index })}
+                                key={item.id}
+                                className={
+                                  highlightedIndex === index
+                                    ? 'highlighted'
+                                    : ''
+                                }
+                              >
+                                {item.task}
+                                {item.defaultExtraInfo && (
+                                  <span className="task-extra-info">
+                                    {' '}
+                                    ({item.defaultExtraInfo})
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                      </ul>,
+                      document.body,
+                    )
+                  : null}
+              </div>
+              <button
+                type="button"
+                className="task-action-btn copy-task-btn paste-pinned-btn"
+                onClick={() => onPastePinned(date, isDone, availableTasks)}
+                title="Paste pinned tasks from clipboard"
+              >
+                📥
+              </button>
             </div>
-            <button
-              type="button"
-              className="task-action-btn copy-task-btn paste-pinned-btn"
-              onClick={() => onPastePinned(date, isDone, availableTasks)}
-              title="Paste pinned tasks from clipboard"
-            >
-              📥
-            </button>
-          </div>
-        )}
+          )
+        }}
       </Downshift>
     </div>
   )
