@@ -152,19 +152,24 @@ const api = new Elysia({ prefix: '/api' })
   )
   .all('/auth/*', betterAuthView)
   // Server-Sent Events subscription using async generator + sse()
-  .get('/events', async function* ({ request, status }) {
+  .get('/events', async function* ({ request, status, set }) {
     try {
       const session = await auth.api.getSession({ headers: request.headers })
       if (!session) return status(401, { message: 'Unauthorized' })
       const userId = session.user.id
 
+      // Ensure proxies like Nginx don't buffer SSE
+      // Must be set before the first yield (Elysia defers headers until first chunk)
+      set.headers['x-accel-buffering'] = 'no'
+      set.headers['cache-control'] = 'no-cache'
+
       const q = new AsyncQueue()
-      let set = subscribers.get(userId)
-      if (!set) {
-        set = new Set<AsyncQueue>()
-        subscribers.set(userId, set)
+      let userSet = subscribers.get(userId)
+      if (!userSet) {
+        userSet = new Set<AsyncQueue>()
+        subscribers.set(userId, userSet)
       }
-      set.add(q)
+      userSet.add(q)
 
       // initial hello and keepalive
       q.push(JSON.stringify({ type: 'connected', ts: Date.now() }))
