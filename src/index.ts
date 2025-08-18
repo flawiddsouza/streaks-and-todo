@@ -18,6 +18,14 @@ import {
 
 // Authentication: each route validates session and derives userId (no global mutable store usage).
 
+// Small shared helpers to reduce repetition
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const normalizeOptionalText = (v: unknown) => {
+  if (v == null) return null
+  const s = `${v}`.trim()
+  return s === '' ? null : s
+}
+
 // When a task is marked done and it's linked to a streak, ensure the streak has a done log for the same date.
 async function ensureStreakDoneForDate(
   streakId: number,
@@ -467,7 +475,7 @@ const api = new Elysia({ prefix: '/api' })
           return status(400, { message: 'Invalid streak ID' })
         }
 
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        if (!date || !DATE_RE.test(date)) {
           return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
@@ -618,7 +626,7 @@ const api = new Elysia({ prefix: '/api' })
           return status(400, { message: 'Invalid streak ID' })
         }
 
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        if (!date || !DATE_RE.test(date)) {
           return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
 
@@ -1029,10 +1037,6 @@ const api = new Elysia({ prefix: '/api' })
           return status(409, { message: 'Group with this name already exists' })
         }
 
-        if (existingGroup.length > 0) {
-          return status(409, { message: 'Group with this name already exists' })
-        }
-
         const [updatedGroup] = await db
           .update(groupsTable)
           .set({ name: name.trim() })
@@ -1170,11 +1174,7 @@ const api = new Elysia({ prefix: '/api' })
                 userId,
                 groupId,
                 task: taskName.trim(),
-                defaultExtraInfo:
-                  defaultExtraInfo == null ||
-                  `${defaultExtraInfo}`.trim() === ''
-                    ? null
-                    : `${defaultExtraInfo}`,
+                defaultExtraInfo: normalizeOptionalText(defaultExtraInfo),
               })
               .returning()
             taskRow = newTask
@@ -1219,10 +1219,7 @@ const api = new Elysia({ prefix: '/api' })
           const current = existingLog[0]
           if (current.done === done) {
             if (extraInfo !== undefined) {
-              const normalized =
-                extraInfo == null || `${extraInfo}`.trim() === ''
-                  ? null
-                  : `${extraInfo}`
+              const normalized = normalizeOptionalText(extraInfo)
               const [updatedLog] = await db
                 .update(taskLogTable)
                 .set({ extraInfo: normalized })
@@ -1258,10 +1255,7 @@ const api = new Elysia({ prefix: '/api' })
               sortOrder: newSortOrder,
             }
             if (extraInfo !== undefined) {
-              updateFields.extraInfo =
-                extraInfo == null || `${extraInfo}`.trim() === ''
-                  ? null
-                  : `${extraInfo}`
+              updateFields.extraInfo = normalizeOptionalText(extraInfo)
             }
 
             const [updatedLog] = await db
@@ -1299,10 +1293,7 @@ const api = new Elysia({ prefix: '/api' })
               taskId: (taskRow as typeof tasksTable.$inferSelect).id,
               date,
               done,
-              extraInfo:
-                extraInfo == null || `${extraInfo}`.trim() === ''
-                  ? null
-                  : `${extraInfo}`,
+              extraInfo: normalizeOptionalText(extraInfo),
               sortOrder: newSortOrder,
             })
             .returning()
@@ -1354,7 +1345,7 @@ const api = new Elysia({ prefix: '/api' })
         if (Number.isNaN(groupIdNum)) {
           return status(400, { message: 'Invalid group ID' })
         }
-        if (!date || !/\d{4}-\d{2}-\d{2}/.test(date)) {
+        if (!date || !DATE_RE.test(date)) {
           return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
         }
         if (typeof note !== 'string') {
@@ -1563,9 +1554,9 @@ const api = new Elysia({ prefix: '/api' })
 
       if (!taskId || Number.isNaN(Number(taskId)))
         return status(400, { message: 'Invalid task ID' })
-      if (!fromDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate))
+      if (!fromDate || !DATE_RE.test(fromDate))
         return status(400, { message: 'Invalid fromDate' })
-      if (!toDate || !/^\d{4}-\d{2}-\d{2}$/.test(toDate))
+      if (!toDate || !DATE_RE.test(toDate))
         return status(400, { message: 'Invalid toDate' })
 
       const task = await db
