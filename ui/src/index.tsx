@@ -23,6 +23,25 @@ async function redirectIfAuthed() {
   return null
 }
 
+async function requireAuth({ request }: { request: Request }) {
+  try {
+    const { data } = await authClient.getSession()
+    if (data && typeof data === 'object' && 'user' in data) {
+      return null
+    }
+  } catch (_) {
+    // ignore and redirect to signin below
+  }
+
+  try {
+    const url = new URL(request.url)
+    const returnTo = url.pathname + url.search
+    return redirect(`/signin?next=${encodeURIComponent(returnTo)}`)
+  } catch (_) {
+    return redirect('/signin')
+  }
+}
+
 const router = createBrowserRouter([
   {
     path: '/',
@@ -41,18 +60,22 @@ const router = createBrowserRouter([
   {
     path: '/streaks',
     element: <StreakGroups />,
+    loader: requireAuth,
   },
   {
     path: '/streaks/:groupId',
     element: <StreakGroup />,
+    loader: requireAuth,
   },
   {
     path: '/todo',
     element: <TodoGroups />,
+    loader: requireAuth,
   },
   {
     path: '/todo/:groupId',
     element: <TodoGroup />,
+    loader: requireAuth,
   },
   {
     path: '*',

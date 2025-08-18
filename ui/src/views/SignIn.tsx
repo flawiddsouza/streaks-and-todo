@@ -1,13 +1,17 @@
 import { type FormEvent, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { authClient } from '../auth-client'
 
 export default function SignIn() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const params = new URLSearchParams(location.search)
+  const next = params.get('next') || '/'
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -15,7 +19,7 @@ export default function SignIn() {
     setLoading(true)
     try {
       const { error } = await authClient.signIn.email(
-        { email, password, callbackURL: '/' },
+        { email, password, callbackURL: next },
         {
           onError(ctx) {
             setError(ctx.error.message)
@@ -23,7 +27,7 @@ export default function SignIn() {
         },
       )
       if (!error) {
-        navigate('/')
+        navigate(next)
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign in failed')
