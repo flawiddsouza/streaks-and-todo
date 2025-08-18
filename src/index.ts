@@ -1312,16 +1312,13 @@ const api = new Elysia({ prefix: '/api' })
         }
 
         // Broadcast task log change; if a new task was created, include that too
-        const payload: any = {
-          type: 'task.log.updated',
+        const payload = {
+          type: 'task.log.updated' as const,
           taskId: (taskRow as typeof tasksTable.$inferSelect).id,
           groupId: (taskRow as typeof tasksTable.$inferSelect).groupId,
           date,
-        }
-        if (createdTask) payload.newTask = createdTask
-        // Also broadcast streak mirror if linked
-        if (linkedStreakId != null) {
-          payload.linkedStreakId = linkedStreakId
+          ...(createdTask ? { newTask: createdTask } : {}),
+          ...(linkedStreakId != null ? { linkedStreakId } : {}),
         }
         broadcast(userId, payload)
         return createdTask ? { log, task: createdTask } : { log }

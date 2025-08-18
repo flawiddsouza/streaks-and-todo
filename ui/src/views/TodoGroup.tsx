@@ -110,7 +110,7 @@ export default function TodoGroup() {
     return () => {
       if (unsub) unsub()
     }
-  }, [groupId])
+  }, [groupId, taskData[0]?.id])
 
   return (
     <div className="page">
