@@ -1,7 +1,7 @@
 import { cors } from '@elysiajs/cors'
 import { staticPlugin } from '@elysiajs/static'
 import { and, desc, eq, inArray } from 'drizzle-orm'
-import { type Context, Elysia } from 'elysia'
+import { type Context, Elysia, sse } from 'elysia'
 import { auth } from './auth'
 import { config } from './config'
 import { db } from './db'
@@ -43,12 +43,24 @@ async function ensureStreakDoneForDate(
             eq(streakLogTable.date, date),
           ),
         )
+      // Notify listeners that a streak log changed due to linked task action
+      broadcast(userId, {
+        type: 'streak.log.updated',
+        streakId,
+        date,
+      })
     }
   } else {
     await db
       .insert(streakLogTable)
       .values({ userId, streakId, date, done: true })
       .returning()
+    // New streak log inserted due to linked task action
+    broadcast(userId, {
+      type: 'streak.log.updated',
+      streakId,
+      date,
+    })
   }
 }
 
@@ -77,6 +89,12 @@ async function ensureStreakUndoneForDate(
             eq(streakLogTable.date, date),
           ),
         )
+      // Notify listeners that a streak log changed due to linked task action
+      broadcast(_userId, {
+        type: 'streak.log.updated',
+        streakId,
+        date,
+      })
     }
   }
 }
@@ -91,6 +109,32 @@ const betterAuthView = (context: Context) => {
   }
 }
 
+// In-memory per-user SSE subscriptions using a simple async queue per connection.
+// Note: This is ephemeral and single-instance only. For multi-instance, use Redis/pub-sub.
+class AsyncQueue {
+  #queue: string[] = []
+  #resolvers: ((v: string) => void)[] = []
+  push(v: string) {
+    const r = this.#resolvers.shift()
+    if (r) r(v)
+    else this.#queue.push(v)
+  }
+  next(): Promise<string> {
+    if (this.#queue.length)
+      return Promise.resolve(this.#queue.shift() as string)
+    return new Promise((resolve) => this.#resolvers.push(resolve))
+  }
+}
+
+const subscribers = new Map<string, Set<AsyncQueue>>()
+
+function broadcast(userId: string, payload: unknown) {
+  const set = subscribers.get(userId)
+  if (!set || set.size === 0) return
+  const data = JSON.stringify(payload)
+  for (const q of Array.from(set)) q.push(data)
+}
+
 const api = new Elysia({ prefix: '/api' })
   .use(
     cors({
@@ -99,6 +143,41 @@ const api = new Elysia({ prefix: '/api' })
     }),
   )
   .all('/auth/*', betterAuthView)
+  // Server-Sent Events subscription using async generator + sse()
+  .get('/events', async function* ({ request, status }) {
+    try {
+      const session = await auth.api.getSession({ headers: request.headers })
+      if (!session) return status(401, { message: 'Unauthorized' })
+      const userId = session.user.id
+
+      const q = new AsyncQueue()
+      let set = subscribers.get(userId)
+      if (!set) {
+        set = new Set<AsyncQueue>()
+        subscribers.set(userId, set)
+      }
+      set.add(q)
+
+      // initial hello and keepalive
+      q.push(JSON.stringify({ type: 'connected', ts: Date.now() }))
+      const interval = setInterval(() => {
+        q.push(JSON.stringify({ type: 'ping', ts: Date.now() }))
+      }, 15000)
+
+      try {
+        while (!request.signal.aborted) {
+          const data = await q.next()
+          yield sse(data)
+        }
+      } finally {
+        clearInterval(interval)
+        subscribers.get(userId)?.delete(q)
+      }
+    } catch (err) {
+      console.error('Error establishing SSE:', err)
+      return status(500, { message: 'Internal server error' })
+    }
+  })
   .get(
     '/streak-groups/:groupId',
     async ({ params: { groupId }, status, request }) => {
@@ -512,6 +591,12 @@ const api = new Elysia({ prefix: '/api' })
           log = newLog
         }
 
+        // Notify SSE listeners for this user
+        broadcast(userId, {
+          type: 'streak.log.updated',
+          streakId: streakIdNum,
+          date,
+        })
         return { log }
       } catch (err) {
         console.error('Error toggling streak log:', err)
@@ -590,6 +675,11 @@ const api = new Elysia({ prefix: '/api' })
           log = newLog
         }
 
+        broadcast(userId, {
+          type: 'streak.note.updated',
+          streakId: streakIdNum,
+          date,
+        })
         return { log }
       } catch (err) {
         console.error('Error updating streak log note:', err)
@@ -711,6 +801,10 @@ const api = new Elysia({ prefix: '/api' })
           .values({ userId, groupId: groupIdNum, streakId, sortOrder })
           .returning()
 
+        broadcast(userId, {
+          type: 'group.streaks.changed',
+          groupId: groupIdNum,
+        })
         return { streakGroup: newStreakGroup }
       } catch (err) {
         console.error('Error adding streak to group:', err)
@@ -747,6 +841,10 @@ const api = new Elysia({ prefix: '/api' })
           return status(404, { message: 'Streak not found in group' })
         }
 
+        broadcast(userId, {
+          type: 'group.streaks.changed',
+          groupId: groupIdNum,
+        })
         return { message: 'Streak removed from group successfully' }
       } catch (err) {
         console.error('Error removing streak from group:', err)
@@ -783,6 +881,10 @@ const api = new Elysia({ prefix: '/api' })
             )
         }
 
+        broadcast(userId, {
+          type: 'group.streaks.changed',
+          groupId: groupIdNum,
+        })
         return { message: 'Streak order updated successfully' }
       } catch (err) {
         console.error('Error updating streak order:', err)
@@ -843,6 +945,7 @@ const api = new Elysia({ prefix: '/api' })
         })
         .returning()
 
+      broadcast(userId, { type: 'groups.changed', groupType: type })
       return { group: newGroup }
     } catch (err) {
       console.error('Error creating group:', err)
@@ -882,6 +985,10 @@ const api = new Elysia({ prefix: '/api' })
           return status(404, { message: 'Group not found' })
         }
 
+        broadcast(userId, {
+          type: 'groups.changed',
+          groupType: deletedGroup[0]?.type,
+        })
         return { message: 'Group deleted successfully', group: deletedGroup[0] }
       } catch (err) {
         console.error('Error deleting group:', err)
@@ -938,6 +1045,7 @@ const api = new Elysia({ prefix: '/api' })
           return status(404, { message: 'Group not found' })
         }
 
+        broadcast(userId, { type: 'group.meta.updated', groupId: groupIdNum })
         return { group: updatedGroup }
       } catch (err) {
         console.error('Error updating group:', err)
@@ -970,6 +1078,7 @@ const api = new Elysia({ prefix: '/api' })
           )
       }
 
+      broadcast(userId, { type: 'groups.reordered' })
       return { message: 'Group order updated successfully' }
     } catch (err) {
       console.error('Error updating group order:', err)
@@ -1211,6 +1320,19 @@ const api = new Elysia({ prefix: '/api' })
           }
         }
 
+        // Broadcast task log change; if a new task was created, include that too
+        const payload: any = {
+          type: 'task.log.updated',
+          taskId: (taskRow as typeof tasksTable.$inferSelect).id,
+          groupId: (taskRow as typeof tasksTable.$inferSelect).groupId,
+          date,
+        }
+        if (createdTask) payload.newTask = createdTask
+        // Also broadcast streak mirror if linked
+        if (linkedStreakId != null) {
+          payload.linkedStreakId = linkedStreakId
+        }
+        broadcast(userId, payload)
         return createdTask ? { log, task: createdTask } : { log }
       } catch (err) {
         console.error('Error setting task log:', err)
@@ -1285,6 +1407,11 @@ const api = new Elysia({ prefix: '/api' })
             .returning()
           result = inserted
         }
+        broadcast(userId, {
+          type: 'group.note.updated',
+          groupId: groupIdNum,
+          date,
+        })
         return { note: result }
       } catch (err) {
         console.error('Error updating group note:', err)
@@ -1357,6 +1484,12 @@ const api = new Elysia({ prefix: '/api' })
           await db.delete(tasksTable).where(eq(tasksTable.id, taskIdNum))
         }
 
+        broadcast(userId, {
+          type: 'task.log.deleted',
+          taskId: taskIdNum,
+          date,
+          groupId: task[0]?.groupId,
+        })
         return { message: 'Task log deleted successfully', log: deletedLog[0] }
       } catch (err) {
         console.error('Error deleting task log:', err)
@@ -1396,6 +1529,7 @@ const api = new Elysia({ prefix: '/api' })
           )
       }
 
+      broadcast(userId, { type: 'tasks.reordered', date })
       return { message: 'Task logs reordered successfully' }
     } catch (err) {
       console.error('Error reordering task logs:', err)
@@ -1691,6 +1825,13 @@ const api = new Elysia({ prefix: '/api' })
         )
         .limit(1)
 
+      broadcast(userId, {
+        type: 'task.log.moved',
+        taskId,
+        fromDate,
+        toDate,
+        toDone,
+      })
       return { message: 'Moved', log: resultLog }
     } catch (err) {
       console.error('Error moving task log:', err)
@@ -1754,6 +1895,10 @@ const api = new Elysia({ prefix: '/api' })
           })
           .returning()
 
+        broadcast(userId, {
+          type: 'pins.groups.changed',
+          parentGroupId: groupIdNum,
+        })
         return { pinGroup }
       } catch (err) {
         console.error('Error creating pin group:', err)
@@ -1871,6 +2016,10 @@ const api = new Elysia({ prefix: '/api' })
           .returning()
         if (deleted.length === 0)
           return status(404, { message: 'Pin not found' })
+        broadcast(userId, {
+          type: 'pins.items.changed',
+          pinGroupId: pinGroupIdNum,
+        })
         return { message: 'Task unpinned' }
       } catch (err) {
         console.error('Error removing task from pin group:', err)
@@ -1906,6 +2055,10 @@ const api = new Elysia({ prefix: '/api' })
               ),
             )
         }
+        broadcast(userId, {
+          type: 'pins.items.reordered',
+          pinGroupId: pinGroupIdNum,
+        })
         return { message: 'Reordered' }
       } catch (err) {
         console.error('Error reordering pin group tasks:', err)
@@ -1978,6 +2131,10 @@ const api = new Elysia({ prefix: '/api' })
           )
           .returning()
 
+        broadcast(userId, {
+          type: 'pins.group.renamed',
+          pinGroupId: pinGroupIdNum,
+        })
         return { group: updated }
       } catch (err) {
         console.error('Error renaming pin group:', err)
@@ -2032,6 +2189,11 @@ const api = new Elysia({ prefix: '/api' })
           )
           .returning()
 
+        broadcast(userId, {
+          type: 'pins.group.deleted',
+          pinGroupId: pinGroupIdNum,
+          parentGroupId: deleted?.group_id,
+        })
         return { message: 'Pin group deleted', group: deleted }
       } catch (err) {
         console.error('Error deleting pin group:', err)
@@ -2083,6 +2245,10 @@ const api = new Elysia({ prefix: '/api' })
               ),
             )
         }
+        broadcast(userId, {
+          type: 'pins.groups.reordered',
+          parentGroupId: groupIdNum,
+        })
         return { message: 'Pin groups reordered' }
       } catch (err) {
         console.error('Error reordering pin groups:', err)
@@ -2179,6 +2345,11 @@ const api = new Elysia({ prefix: '/api' })
           )
           .returning()
 
+        broadcast(userId, {
+          type: 'task.updated',
+          taskId: taskIdNum,
+          groupId: updated.groupId,
+        })
         return { task: updated }
       } catch (err) {
         console.error('Error updating task:', err)
@@ -2204,7 +2375,10 @@ const app = new Elysia()
       }
     }
   })
-  .listen(9008)
+  .listen({
+    port: 9008,
+    idleTimeout: 30,
+  })
 
 console.log(
   `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`,

@@ -9,6 +9,7 @@ import {
 import ManageTasksModal from '../components/ManageTasksModal'
 import PinnedTasks from '../components/PinnedTasks'
 import TodoGroupTable from '../components/TodoGroupTable'
+import { type AppEvent, onEvent } from '../events'
 
 export default function TodoGroup() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -76,6 +77,39 @@ export default function TodoGroup() {
     }
 
     fetchData()
+
+    // Live updates via SSE
+    let unsub: (() => void) | null = null
+    if (groupId) {
+      const gid = parseInt(groupId, 10)
+      unsub = onEvent(async (evt: AppEvent) => {
+        // Only refresh when the event concerns this group
+        if (
+          (evt.type === 'task.log.updated' && evt.groupId === gid) ||
+          (evt.type === 'task.log.deleted' && evt.groupId === gid) ||
+          evt.type === 'tasks.reordered' ||
+          (evt.type === 'group.note.updated' && evt.groupId === gid) ||
+          evt.type === 'task.log.moved' ||
+          (evt.type === 'pins.groups.changed' && evt.parentGroupId === gid) ||
+          (evt.type === 'pins.group.deleted' && evt.parentGroupId === gid) ||
+          evt.type === 'pins.groups.reordered' ||
+          evt.type === 'pins.items.changed' ||
+          evt.type === 'pins.items.reordered' ||
+          (evt.type === 'task.updated' && taskData[0]?.id === gid)
+        ) {
+          try {
+            const updated = await fetchGroupTasks(gid)
+            if (updated) setTaskData([updated])
+          } catch (err) {
+            console.error('Live refresh failed:', err)
+          }
+        }
+      })
+    }
+
+    return () => {
+      if (unsub) unsub()
+    }
   }, [groupId])
 
   return (

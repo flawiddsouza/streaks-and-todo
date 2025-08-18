@@ -13,6 +13,7 @@ import {
 } from '../api'
 import ManageGroupModal from '../components/ManageGroupModal'
 import StreakGroupTable from '../components/StreakGroupTable'
+import { type AppEvent, onEvent } from '../events'
 
 export default function Group() {
   const { groupId } = useParams<{ groupId: string }>()
@@ -173,6 +174,40 @@ export default function Group() {
     }
 
     fetchData()
+
+    // Live updates via SSE
+    let unsub: (() => void) | null = null
+    if (groupId) {
+      const gid = parseInt(groupId, 10)
+      unsub = onEvent(async (evt: AppEvent) => {
+        if (
+          (evt.type === 'group.streaks.changed' && evt.groupId === gid) ||
+          evt.type === 'streak.log.updated' ||
+          evt.type === 'streak.note.updated' ||
+          (evt.type === 'group.meta.updated' && evt.groupId === gid)
+        ) {
+          try {
+            const updated = await fetchGroupStreaks(gid)
+            if (updated) setStreakData([updated])
+          } catch (err) {
+            console.error('Live refresh failed:', err)
+          }
+        }
+        // Also refresh streak group if a task update could mirror into a linked streak
+        if (evt.type === 'task.log.updated' && evt.linkedStreakId != null) {
+          try {
+            const updated = await fetchGroupStreaks(gid)
+            if (updated) setStreakData([updated])
+          } catch (err) {
+            console.error('Live refresh (linked streak) failed:', err)
+          }
+        }
+      })
+    }
+
+    return () => {
+      if (unsub) unsub()
+    }
   }, [groupId])
 
   return (
