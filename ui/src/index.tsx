@@ -51,31 +51,37 @@ const router = createBrowserRouter([
     path: '/signup',
     element: <SignUp />,
     loader: redirectIfAuthed,
+    HydrateFallback: () => null,
   },
   {
     path: '/signin',
     element: <SignIn />,
     loader: redirectIfAuthed,
+    HydrateFallback: () => null,
   },
   {
     path: '/streaks',
     element: <StreakGroups />,
     loader: requireAuth,
+    HydrateFallback: () => null,
   },
   {
     path: '/streaks/:groupId',
     element: <StreakGroup />,
     loader: requireAuth,
+    HydrateFallback: () => null,
   },
   {
     path: '/todo',
     element: <TodoGroups />,
     loader: requireAuth,
+    HydrateFallback: () => null,
   },
   {
     path: '/todo/:groupId',
     element: <TodoGroup />,
     loader: requireAuth,
+    HydrateFallback: () => null,
   },
   {
     path: '*',
