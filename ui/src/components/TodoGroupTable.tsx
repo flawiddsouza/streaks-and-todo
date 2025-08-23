@@ -25,6 +25,7 @@ import {
   type TaskGroup,
   updateGroupNote,
 } from '../api'
+import confirmAsync from './confirmAsync'
 import './TodoGroupTable.css'
 
 interface TodoGroupTableProps {
@@ -1088,6 +1089,23 @@ export default function TodoGroupTable({
 
   const currentDate = dayjs().format('YYYY-MM-DD')
 
+  const handleDeleteClick = useCallback(
+    async (taskId: number, date: string) => {
+      if (date !== currentDate) {
+        const ok = await confirmAsync({
+          title: 'Confirm delete',
+          message: `Remove this task from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`,
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+          maxWidth: '480px',
+        })
+        if (!ok) return
+      }
+      await deleteTaskRecord(taskId, date)
+    },
+    [deleteTaskRecord, currentDate],
+  )
+
   const updateTaskExtraInfo = useCallback(
     async (taskId: number, date: string, newExtraInfo: string) => {
       try {
@@ -1388,7 +1406,7 @@ export default function TodoGroupTable({
                     reset()
                   }}
                   onToggle={toggleTaskRecord}
-                  onDelete={deleteTaskRecord}
+                  onDelete={handleDeleteClick}
                   onCopy={copyTaskToClipboard}
                   onEdit={handleEditTask}
                   editingTask={editingTask}
@@ -1430,7 +1448,7 @@ export default function TodoGroupTable({
                     reset()
                   }}
                   onToggle={toggleTaskRecord}
-                  onDelete={deleteTaskRecord}
+                  onDelete={handleDeleteClick}
                   onCopy={copyTaskToClipboard}
                   onEdit={handleEditTask}
                   editingTask={editingTask}
