@@ -13,6 +13,7 @@ import {
   toggleStreakLog,
   updateStreakLogNote,
 } from '../api'
+import confirmAsync from './confirmAsync'
 import './StreakGroupTable.css'
 import Modal from './Modal'
 
@@ -232,6 +233,18 @@ export default function StreakGroupTable({
           "This streak was marked done by the following task(s) and can't be removed here. Undo/remove the task to remove this streak entry.",
       })
       return
+    }
+
+    const today = dayjs().format('YYYY-MM-DD')
+    if (isDone && date !== today) {
+      const ok = await confirmAsync({
+        title: 'Confirm delete',
+        message: `Remove this streak mark from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`,
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+        maxWidth: '480px',
+      })
+      if (!ok) return
     }
 
     try {
