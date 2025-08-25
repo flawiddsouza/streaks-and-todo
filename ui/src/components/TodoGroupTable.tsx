@@ -18,11 +18,12 @@ import { createPortal } from 'react-dom'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
   createTaskAndLog,
-  deleteTaskLog,
+  deleteTaskLogById,
   fetchGroupTasks,
   moveTaskLog,
   setTaskLog,
   type TaskGroup,
+  type TaskRecord,
   updateGroupNote,
 } from '../api'
 import confirmAsync from './confirmAsync'
@@ -36,11 +37,12 @@ interface TodoGroupTableProps {
   groupId?: number
 }
 
-interface TaskItem {
+interface TaskLog {
   taskId: number
   task: string
   extraInfo?: string
   sortOrder: number
+  logId: number
 }
 
 interface FlatTask {
@@ -48,12 +50,7 @@ interface FlatTask {
   task: string
   groupName: string
   defaultExtraInfo?: string | null
-  records: Array<{
-    date: string
-    done: boolean
-    extraInfo?: string
-    sortOrder: number
-  }>
+  records: TaskRecord[]
 }
 
 const formatTaskWithExtraInfo = (
@@ -216,11 +213,11 @@ function DropZone({
 }
 
 interface TaskItemProps {
-  taskLog: TaskItem
+  taskLog: TaskLog
   date: string
   onToggle: (taskId: number, date: string) => void
-  onDelete: (taskId: number, date: string) => void
-  onCopy: (taskLog: TaskItem) => void
+  onDelete: (logId: number, date: string) => void
+  onCopy: (taskLog: TaskLog) => void
   onEdit: (taskId: number, date: string, currentExtraInfo: string) => void
   isEditing: boolean
   editValue: string
@@ -380,7 +377,7 @@ function TaskItemComponent({
         className="task-action-btn delete-task-btn"
         onClick={(e) => {
           e.stopPropagation()
-          onDelete(taskLog.taskId, date)
+          onDelete(taskLog.logId ?? -1, date)
         }}
         title="Remove task from this day"
       >
@@ -391,7 +388,7 @@ function TaskItemComponent({
 }
 
 interface TaskColumnProps {
-  tasks: TaskItem[]
+  tasks: TaskLog[]
   date: string
   availableTasks: FlatTask[]
   placeholder: string
@@ -402,8 +399,8 @@ interface TaskColumnProps {
   ) => void
   onEnter: (inputValue: string, reset: () => void) => void
   onToggle: (taskId: number, date: string) => void
-  onDelete: (taskId: number, date: string) => void
-  onCopy: (taskLog: TaskItem) => void
+  onDelete: (logId: number, date: string) => void
+  onCopy: (taskLog: TaskLog) => void
   onEdit: (taskId: number, date: string, currentExtraInfo: string) => void
   editingTask: { taskId: number; date: string; extraInfo: string } | null
   onEditChange: (value: string) => void
@@ -742,8 +739,8 @@ export default function TodoGroupTable({
 
     return allDates.map((date) => {
       const dayOfWeek = dayjs(date).format('dddd')
-      const doneTasks: TaskItem[] = []
-      const todoTasks: TaskItem[] = []
+      const doneTasks: TaskLog[] = []
+      const todoTasks: TaskLog[] = []
 
       allTasks.forEach((task) => {
         const records = task.records.filter((record) => record.date === date)
@@ -753,6 +750,7 @@ export default function TodoGroupTable({
             task: task.task,
             extraInfo: record.extraInfo,
             sortOrder: record.sortOrder,
+            logId: record.id,
           }
 
           if (record.done) {
@@ -829,6 +827,7 @@ export default function TodoGroupTable({
             } else {
               // Add new record
               updatedRecords.push({
+                id: updatedLog.id,
                 date: updatedLog.date,
                 done: updatedLog.done,
                 extraInfo: updatedLog.extraInfo || undefined,
@@ -847,42 +846,50 @@ export default function TodoGroupTable({
   )
 
   const deleteTaskRecord = useCallback(
-    async (taskId: number, date: string) => {
-      const taskLocation = taskLookup.get(taskId)
-      if (!taskLocation) return
+    async (logId: number) => {
+      if (logId <= 0) {
+        console.error('Invalid logId for deletion:', logId)
+        return
+      }
 
       try {
-        await deleteTaskLog(taskId, date)
-        const { groupIndex, taskIndex } = taskLocation
+        await deleteTaskLogById(logId)
 
+        // Remove record from local state by searching for record.id === logId
         onTaskDataChange((prevData) => {
-          const newData = [...prevData]
-          const targetGroup = { ...newData[groupIndex] }
-          const targetTasks = [...targetGroup.tasks]
-          const targetTask = { ...targetTasks[taskIndex] }
+          const newData = prevData.map((g) => ({ ...g, tasks: [...g.tasks] }))
 
-          // Remove the record for this date
-          const updatedRecords = targetTask.records.filter(
-            (r) => r.date !== date,
-          )
+          for (let gi = 0; gi < newData.length; gi++) {
+            const group = newData[gi]
+            for (let ti = 0; ti < group.tasks.length; ti++) {
+              const task = { ...group.tasks[ti] }
+              const recIdx = task.records.findIndex((r) => r.id === logId)
+              if (recIdx >= 0) {
+                const updatedRecords = [...task.records]
+                updatedRecords.splice(recIdx, 1)
 
-          // If no records remain, remove the task entirely
-          if (updatedRecords.length === 0) {
-            targetTasks.splice(taskIndex, 1)
-          } else {
-            targetTask.records = updatedRecords
-            targetTasks[taskIndex] = targetTask
+                if (updatedRecords.length === 0) {
+                  // remove the entire task
+                  group.tasks.splice(ti, 1)
+                } else {
+                  task.records = updatedRecords
+                  group.tasks[ti] = task
+                }
+
+                newData[gi] = { ...group }
+                return newData
+              }
+            }
           }
 
-          targetGroup.tasks = targetTasks
-          newData[groupIndex] = targetGroup
-          return newData
+          // If not found locally, just return previous (server deletion succeeded)
+          return prevData
         })
       } catch (err) {
         console.error('Error deleting task record:', err)
       }
     },
-    [taskLookup, onTaskDataChange],
+    [onTaskDataChange],
   )
 
   const addTaskToCell = useCallback(
@@ -907,6 +914,7 @@ export default function TodoGroupTable({
               const updated = [...records]
               updated[idx] = {
                 ...updated[idx],
+                id: log.id,
                 done: log.done,
                 extraInfo: log.extraInfo || undefined,
                 sortOrder: log.sortOrder,
@@ -916,6 +924,7 @@ export default function TodoGroupTable({
             return [
               ...records,
               {
+                id: log.id,
                 date: log.date,
                 done: log.done,
                 extraInfo: log.extraInfo || undefined,
@@ -971,6 +980,7 @@ export default function TodoGroupTable({
               }
             } else {
               recs.push({
+                id: log.id,
                 date: log.date,
                 done: log.done,
                 extraInfo: log.extraInfo || undefined,
@@ -988,6 +998,7 @@ export default function TodoGroupTable({
                 defaultExtraInfo: task.defaultExtraInfo,
                 records: [
                   {
+                    id: log.id,
                     date: log.date,
                     done: log.done,
                     extraInfo: log.extraInfo || undefined,
@@ -1090,7 +1101,7 @@ export default function TodoGroupTable({
   const currentDate = dayjs().format('YYYY-MM-DD')
 
   const handleDeleteClick = useCallback(
-    async (taskId: number, date: string) => {
+    async (logId: number, date: string) => {
       if (date !== currentDate) {
         const ok = await confirmAsync({
           title: 'Confirm delete',
@@ -1101,7 +1112,7 @@ export default function TodoGroupTable({
         })
         if (!ok) return
       }
-      await deleteTaskRecord(taskId, date)
+      await deleteTaskRecord(logId)
     },
     [deleteTaskRecord, currentDate],
   )
@@ -1178,7 +1189,7 @@ export default function TodoGroupTable({
     setEditingTask(null)
   }, [])
 
-  const copyTaskToClipboard = useCallback(async (taskLog: TaskItem) => {
+  const copyTaskToClipboard = useCallback(async (taskLog: TaskLog) => {
     let textToCopy = taskLog.task
     if (taskLog.extraInfo && taskLog.extraInfo.trim().length > 0) {
       textToCopy += ` (${taskLog.extraInfo})`

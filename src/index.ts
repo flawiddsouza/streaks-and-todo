@@ -1333,7 +1333,6 @@ const api = new Elysia({ prefix: '/api' })
       }
     },
   )
-  // Removed legacy: PUT /tasks/:taskId/:date/note (handled by POST /tasks/:taskId/log with extraInfo)
   .put(
     '/groups/:groupId/:date/note',
     async ({ params: { groupId, date }, body, status, request }) => {
@@ -1412,24 +1411,47 @@ const api = new Elysia({ prefix: '/api' })
       }
     },
   )
-  // Removed legacy: POST /groups/:groupId/tasks (handled by POST /tasks/new/log)
   .delete(
-    '/tasks/:taskId/:date/log',
-    async ({ params: { taskId, date }, status, request }) => {
+    '/tasks/logs/:logId',
+    async ({ params: { logId }, status, request }) => {
       try {
         const session = await auth.api.getSession({ headers: request.headers })
         if (!session) return status(401, { message: 'Unauthorized' })
         const userId = session.user.id
-        const taskIdNum = parseInt(taskId)
+        const logIdNum = parseInt(logId)
 
-        if (Number.isNaN(taskIdNum)) {
-          return status(400, { message: 'Invalid task ID' })
+        if (Number.isNaN(logIdNum)) {
+          return status(400, { message: 'Invalid log ID' })
         }
 
-        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return status(400, { message: 'Invalid date format. Use YYYY-MM-DD' })
+        // Ensure the log exists and belongs to this user
+        const existing = await db
+          .select()
+          .from(taskLogTable)
+          .where(
+            and(eq(taskLogTable.id, logIdNum), eq(taskLogTable.userId, userId)),
+          )
+          .limit(1)
+
+        if (existing.length === 0) {
+          return status(404, { message: 'Task log not found' })
         }
 
+        const taskIdNum = existing[0].taskId
+        const date = existing[0].date
+
+        const deleted = await db
+          .delete(taskLogTable)
+          .where(eq(taskLogTable.id, logIdNum))
+          .returning()
+
+        if (deleted.length === 0) {
+          return status(404, { message: 'Task log not found' })
+        }
+
+        const deletedLog = deleted[0]
+
+        // Fetch the parent task to check streak linkage and group id
         const task = await db
           .select()
           .from(tasksTable)
@@ -1438,34 +1460,21 @@ const api = new Elysia({ prefix: '/api' })
           )
           .limit(1)
 
-        if (task.length === 0) {
-          return status(404, { message: 'Task not found' })
-        }
-
-        const deletedLog = await db
-          .delete(taskLogTable)
-          .where(
-            and(
-              eq(taskLogTable.taskId, taskIdNum),
-              eq(taskLogTable.date, date),
-            ),
-          )
-          .returning()
-
-        if (deletedLog.length === 0) {
-          return status(404, { message: 'Task log not found' })
-        }
-
         // If the deleted log was done and this task is linked to a streak, mark the streak as undone for that date
-        if (deletedLog[0]?.done === true && task[0]?.streakId != null) {
+        if (deletedLog?.done === true && task[0]?.streakId != null) {
           await ensureStreakUndoneForDate(task[0].streakId, date, userId)
         }
 
-        // Check if there are any remaining logs for this task
+        // Check if there are any remaining logs for this task (respecting user)
         const remainingLogs = await db
           .select()
           .from(taskLogTable)
-          .where(eq(taskLogTable.taskId, taskIdNum))
+          .where(
+            and(
+              eq(taskLogTable.taskId, taskIdNum),
+              eq(taskLogTable.userId, userId),
+            ),
+          )
           .limit(1)
 
         // If no logs remain, delete the task itself (and its pins)
@@ -1483,9 +1492,10 @@ const api = new Elysia({ prefix: '/api' })
           date,
           groupId: task[0]?.groupId,
         })
-        return { message: 'Task log deleted successfully', log: deletedLog[0] }
+
+        return { message: 'Task log deleted successfully', log: deletedLog }
       } catch (err) {
-        console.error('Error deleting task log:', err)
+        console.error('Error deleting task log by id:', err)
         return status(500, { message: 'Internal server error' })
       }
     },

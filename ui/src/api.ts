@@ -88,6 +88,7 @@ export interface StreakRecord {
 }
 
 export interface TaskRecord {
+  id: number
   date: string
   done: boolean
   extraInfo?: string
@@ -189,6 +190,7 @@ export const fetchGroupTasks = async (
         defaultExtraInfo: task.defaultExtraInfo,
         streakId: task.streakId ?? null,
         records: task.logs.map((log) => ({
+          id: log.id,
           date: log.date,
           done: log.done,
           extraInfo: log.extraInfo || undefined,
@@ -477,17 +479,14 @@ export const updateStreakLogNote = async (
 
 // updateTaskLogNote removed in favor of setTaskLog(extraInfo)
 
-export const deleteTaskLog = async (
-  taskId: number,
-  date: string,
-): Promise<void> => {
-  const response = await apiFetch(`/tasks/${taskId}/${date}/log`, {
+export const deleteTaskLogById = async (logId: number): Promise<void> => {
+  const response = await apiFetch(`/tasks/logs/${logId}`, {
     method: 'DELETE',
   })
 
   if (!response.ok) {
     const errorData = await response.json()
-    console.error('Failed to delete task log:', errorData)
+    console.error('Failed to delete task log by id:', errorData)
     throw new Error('Failed to delete task log')
   }
 }
