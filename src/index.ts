@@ -78,31 +78,51 @@ async function ensureStreakUndoneForDate(
   date: string,
   _userId: string, // reserved for potential auditing
 ) {
-  const existing = await db
+  // Check if there are any other done task logs for this streak on this date
+  const doneTaskLogs = await db
     .select()
-    .from(streakLogTable)
+    .from(taskLogTable)
+    .innerJoin(tasksTable, eq(taskLogTable.taskId, tasksTable.id))
     .where(
-      and(eq(streakLogTable.streakId, streakId), eq(streakLogTable.date, date)),
+      and(
+        eq(tasksTable.streakId, streakId),
+        eq(taskLogTable.date, date),
+        eq(taskLogTable.done, true),
+        eq(tasksTable.userId, _userId),
+      ),
     )
-    .limit(1)
 
-  if (existing.length > 0) {
-    if (existing[0].done) {
-      await db
-        .update(streakLogTable)
-        .set({ done: false })
-        .where(
-          and(
-            eq(streakLogTable.streakId, streakId),
-            eq(streakLogTable.date, date),
-          ),
-        )
-      // Notify listeners that a streak log changed due to linked task action
-      broadcast(_userId, {
-        type: 'streak.log.updated',
-        streakId,
-        date,
-      })
+  // Only set streak to undone if there are no done task logs for this streak on this date
+  if (doneTaskLogs.length === 0) {
+    const existing = await db
+      .select()
+      .from(streakLogTable)
+      .where(
+        and(
+          eq(streakLogTable.streakId, streakId),
+          eq(streakLogTable.date, date),
+        ),
+      )
+      .limit(1)
+
+    if (existing.length > 0) {
+      if (existing[0].done) {
+        await db
+          .update(streakLogTable)
+          .set({ done: false })
+          .where(
+            and(
+              eq(streakLogTable.streakId, streakId),
+              eq(streakLogTable.date, date),
+            ),
+          )
+        // Notify listeners that a streak log changed due to linked task action
+        broadcast(_userId, {
+          type: 'streak.log.updated',
+          streakId,
+          date,
+        })
+      }
     }
   }
 }
