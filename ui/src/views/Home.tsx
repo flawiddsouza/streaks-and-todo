@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { authClient } from '../auth-client'
+import { preventSilentCredentialAccess } from '../credential-management'
 
 interface SessionData {
   user: { id: string; email: string; name: string }
@@ -62,7 +63,12 @@ function SessionBar({
         className="btn btn-secondary btn-sm"
         onClick={() =>
           authClient.signOut({
-            fetchOptions: { onSuccess: () => window.location.reload() },
+            fetchOptions: {
+              onSuccess: async () => {
+                await preventSilentCredentialAccess()
+                window.location.reload()
+              },
+            },
           })
         }
       >

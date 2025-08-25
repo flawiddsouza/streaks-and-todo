@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { authClient } from '../auth-client'
+import { storePasswordCredential } from '../credential-management'
 
 export default function SignIn() {
   const navigate = useNavigate()
@@ -27,6 +28,7 @@ export default function SignIn() {
         },
       )
       if (!error) {
+        await storePasswordCredential(email, password)
         navigate(next)
       }
     } catch (err: unknown) {

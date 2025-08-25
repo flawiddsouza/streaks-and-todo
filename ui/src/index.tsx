@@ -10,6 +10,7 @@ import TodoGroup from './views/TodoGroup'
 import TodoGroups from './views/TodoGroups'
 import './index.css'
 import { authClient } from './auth-client'
+import { attemptAutoSignIn } from './credential-management'
 
 async function redirectIfAuthed() {
   try {
@@ -20,6 +21,12 @@ async function redirectIfAuthed() {
   } catch (_) {
     // swallow; show page to allow auth
   }
+
+  try {
+    const ok = await attemptAutoSignIn()
+    if (ok) return redirect('/')
+  } catch {}
+
   return null
 }
 
@@ -32,6 +39,11 @@ async function requireAuth({ request }: { request: Request }) {
   } catch (_) {
     // ignore and redirect to signin below
   }
+
+  try {
+    const ok = await attemptAutoSignIn()
+    if (ok) return null
+  } catch {}
 
   try {
     const url = new URL(request.url)
