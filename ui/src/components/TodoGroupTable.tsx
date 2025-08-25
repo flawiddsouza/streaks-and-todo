@@ -809,12 +809,20 @@ export default function TodoGroupTable({
         const currentTask = taskData[groupIndex].tasks[taskIndex]
         const record = currentTask.records.find((r) => r.date === date)
         const newDone = !(record?.done ?? false)
-        const updatedLog = await setTaskLog(taskId, date, newDone)
+        const updatedLog = await setTaskLog(
+          taskId,
+          date,
+          newDone,
+          undefined,
+          record?.id,
+        )
 
         onTaskDataChange((prevData) =>
           updateTaskData(prevData, groupIndex, taskIndex, (records) => {
             const updatedRecords = [...records]
-            const recordIndex = updatedRecords.findIndex((r) => r.date === date)
+            const recordIndex = updatedRecords.findIndex(
+              (r) => r.id === updatedLog.id,
+            )
 
             if (recordIndex >= 0) {
               // Update existing record
@@ -893,9 +901,15 @@ export default function TodoGroupTable({
   )
 
   const addTaskToCell = useCallback(
-    async (taskId: number, date: string, done: boolean, extraInfo?: string) => {
+    async (
+      taskId: number,
+      date: string,
+      done: boolean,
+      extraInfo?: string,
+      logId?: number,
+    ) => {
       try {
-        const log = await setTaskLog(taskId, date, done, extraInfo)
+        const log = await setTaskLog(taskId, date, done, extraInfo, logId)
 
         // Update local state minimally without full refetch
         const taskLocation = taskLookup.get(taskId)
@@ -909,7 +923,8 @@ export default function TodoGroupTable({
         const { groupIndex, taskIndex } = taskLocation
         onTaskDataChange((prev) =>
           updateTaskData(prev, groupIndex, taskIndex, (records) => {
-            const idx = records.findIndex((r) => r.date === date)
+            const idx =
+              logId != null ? records.findIndex((r) => r.id === logId) : -1
             if (idx >= 0) {
               const updated = [...records]
               updated[idx] = {
@@ -1120,28 +1135,25 @@ export default function TodoGroupTable({
   const updateTaskExtraInfo = useCallback(
     async (taskId: number, date: string, newExtraInfo: string) => {
       try {
-        // Use single endpoint to update extraInfo without reordering
-        const log = await setTaskLog(
-          taskId,
-          date /* done unchanged */,
-          (() => {
-            const loc = taskLookup.get(taskId)
-            if (!loc) return true
-            const rec = taskData[loc.groupIndex].tasks[
-              loc.taskIndex
-            ].records.find((r) => r.date === date)
-            return rec?.done ?? true
-          })(),
-          newExtraInfo,
-        )
-
+        // Use single endpoint to update extraInfo without reordering. Keep done unchanged and pass logId.
         const taskLocation = taskLookup.get(taskId)
         if (!taskLocation) return
         const { groupIndex, taskIndex } = taskLocation
+        const existingRec = taskData[groupIndex].tasks[taskIndex].records.find(
+          (r) => r.date === date,
+        )
+        const log = await setTaskLog(
+          taskId,
+          date,
+          existingRec?.done ?? true,
+          newExtraInfo,
+          existingRec?.id,
+        )
+
         onTaskDataChange((prev) =>
           updateTaskData(prev, groupIndex, taskIndex, (records) => {
             const updated = [...records]
-            const idx = updated.findIndex((r) => r.date === date)
+            const idx = updated.findIndex((r) => r.id === log.id)
             if (idx >= 0) {
               updated[idx] = {
                 ...updated[idx],
@@ -1300,6 +1312,7 @@ export default function TodoGroupTable({
           const taskIdVal = obj.taskId
           const taskNameVal = obj.task
           const extraInfoVal = obj.extraInfo
+          const logIdVal = obj.logId
 
           if (typeof taskIdVal === 'number') {
             id = taskIdVal
@@ -1313,7 +1326,8 @@ export default function TodoGroupTable({
           if (id) {
             const extraInfo =
               typeof extraInfoVal === 'string' ? extraInfoVal : undefined
-            await addTaskToCell(id, date, done, extraInfo)
+            const logId = typeof logIdVal === 'number' ? logIdVal : undefined
+            await addTaskToCell(id, date, done, extraInfo, logId)
           }
         }
       } catch (err) {

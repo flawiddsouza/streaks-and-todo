@@ -391,6 +391,7 @@ export const setTaskLog = async (
   date: string,
   done: boolean,
   extraInfo?: string | null,
+  logId?: number,
 ): Promise<ApiTaskLog> => {
   const response = await apiFetch(`/tasks/${taskId}/log`, {
     method: 'POST',
@@ -400,6 +401,8 @@ export const setTaskLog = async (
     body: JSON.stringify({
       date,
       done,
+      // include logId when provided so server can update the existing log
+      ...(logId !== undefined ? { logId } : {}),
       // send only if defined to avoid overwriting unintentionally
       ...(extraInfo !== undefined ? { extraInfo } : {}),
     }),

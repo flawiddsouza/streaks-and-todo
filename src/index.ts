@@ -1111,6 +1111,7 @@ const api = new Elysia({ prefix: '/api' })
           groupId,
           task: taskName,
           defaultExtraInfo,
+          logId,
         } = body as {
           date: string
           done: boolean
@@ -1118,6 +1119,7 @@ const api = new Elysia({ prefix: '/api' })
           groupId?: number
           task?: string
           defaultExtraInfo?: string | null
+          logId?: number
         }
 
         if (!isNew && (taskIdNum == null || Number.isNaN(taskIdNum))) {
@@ -1204,19 +1206,27 @@ const api = new Elysia({ prefix: '/api' })
           taskRow = found[0]
         }
 
-        const existingLog = await db
-          .select()
-          .from(taskLogTable)
-          .where(
-            and(
-              eq(
-                taskLogTable.taskId,
-                (taskRow as typeof tasksTable.$inferSelect).id,
+        let existingLog: (typeof taskLogTable.$inferSelect)[] = []
+        if (logId !== undefined && logId !== null) {
+          const logIdNum = Number.parseInt(String(logId))
+          if (Number.isNaN(logIdNum)) {
+            return status(400, { message: 'Invalid logId' })
+          }
+          const foundById = await db
+            .select()
+            .from(taskLogTable)
+            .where(
+              and(
+                eq(taskLogTable.id, logIdNum),
+                eq(taskLogTable.userId, userId),
               ),
-              eq(taskLogTable.date, date),
-            ),
-          )
-          .limit(1)
+            )
+            .limit(1)
+          if (foundById.length === 0) {
+            return status(404, { message: 'Task log not found' })
+          }
+          existingLog = foundById
+        }
 
         let log: typeof taskLogTable.$inferSelect
         if (existingLog.length > 0) {
@@ -1228,12 +1238,7 @@ const api = new Elysia({ prefix: '/api' })
               const [updatedLog] = await db
                 .update(taskLogTable)
                 .set({ extraInfo: normalized })
-                .where(
-                  and(
-                    eq(taskLogTable.taskId, current.taskId),
-                    eq(taskLogTable.date, date),
-                  ),
-                )
+                .where(eq(taskLogTable.id, current.id))
                 .returning()
               log = updatedLog
             } else {
@@ -1266,12 +1271,7 @@ const api = new Elysia({ prefix: '/api' })
             const [updatedLog] = await db
               .update(taskLogTable)
               .set(updateFields)
-              .where(
-                and(
-                  eq(taskLogTable.taskId, current.taskId),
-                  eq(taskLogTable.date, date),
-                ),
-              )
+              .where(eq(taskLogTable.id, current.id))
               .returning()
             log = updatedLog
           }
