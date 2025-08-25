@@ -150,14 +150,14 @@ const parseTaskWithExtraInfo = (
 
 interface DropZoneProps {
   date: string
-  targetTaskId: number
+  targetLogId: number
   position: 'before' | 'after'
   isDoneColumn: boolean
   onReorder: (
     targetDate: string,
     sourceDate: string,
-    sourceTaskId: number,
-    targetTaskId: number,
+    sourceLogId: number,
+    targetLogId: number,
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
@@ -165,7 +165,7 @@ interface DropZoneProps {
 
 function DropZone({
   date,
-  targetTaskId,
+  targetLogId,
   position,
   isDoneColumn,
   onReorder,
@@ -181,27 +181,26 @@ function DropZone({
       element,
       canDrop: ({ source }) => {
         return (
-          source.data.type === 'task-item' &&
-          source.data.taskId !== targetTaskId
+          source.data.type === 'task-item' && source.data.logId !== targetLogId
         )
       },
       onDragEnter: () => setIsActive(true),
       onDragLeave: () => setIsActive(false),
       onDrop: ({ source }) => {
         setIsActive(false)
-        const sourceTaskId = source.data.taskId as number
+        const sourceLogId = source.data.logId as number
         const sourceDate = source.data.sourceDate as string
         onReorder(
           date,
           sourceDate,
-          sourceTaskId,
-          targetTaskId,
+          sourceLogId,
+          targetLogId,
           position,
           isDoneColumn,
         )
       },
     })
-  }, [date, targetTaskId, position, isDoneColumn, onReorder])
+  }, [date, targetLogId, position, isDoneColumn, onReorder])
 
   return (
     <div
@@ -227,8 +226,8 @@ interface TaskItemProps {
   onReorder: (
     targetDate: string,
     sourceDate: string,
-    sourceTaskId: number,
-    targetTaskId: number,
+    sourceLogId: number,
+    targetLogId: number,
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
@@ -263,6 +262,7 @@ function TaskItemComponent({
         getInitialData: () => ({
           type: 'task-item',
           taskId: taskLog.taskId,
+          logId: taskLog.logId,
           task: taskLog.task,
           extraInfo: taskLog.extraInfo,
           sortOrder: taskLog.sortOrder,
@@ -276,20 +276,17 @@ function TaskItemComponent({
         canDrop: ({ source }) => {
           return (
             source.data.type === 'task-item' &&
-            source.data.taskId !== taskLog.taskId
+            source.data.logId !== taskLog.logId
           )
         },
         onDragEnter: () => setIsDraggedOver(true),
         onDragLeave: () => setIsDraggedOver(false),
         onDrop: ({ source }) => {
           setIsDraggedOver(false)
-          const sourceTaskId = source.data.taskId as number
+          const sourceLogId = source.data.logId as number
           const sourceDate = source.data.sourceDate as string
-
-          if (sourceTaskId === taskLog.taskId) return
-
-          // Handle cross-date/cross-column drops via the enhanced onReorder
-          onReorder(date, sourceDate, sourceTaskId, taskLog.taskId, 'before')
+          if (sourceLogId === taskLog.logId) return
+          onReorder(date, sourceDate, sourceLogId, taskLog.logId, 'before')
         },
       }),
     )
@@ -409,8 +406,8 @@ interface TaskColumnProps {
   onReorder: (
     targetDate: string,
     sourceDate: string,
-    sourceTaskId: number,
-    targetTaskId: number,
+    sourceLogId: number,
+    targetLogId: number,
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
@@ -494,7 +491,7 @@ function TaskColumn({
         // Empty list - single drop zone
         <DropZone
           date={date}
-          targetTaskId={-1}
+          targetLogId={-1}
           position="after"
           isDoneColumn={isDone}
           onReorder={onReorder}
@@ -504,12 +501,12 @@ function TaskColumn({
           const isEditing =
             editingTask?.taskId === taskLog.taskId && editingTask?.date === date
           return (
-            <div key={`${taskLog.taskId}-${date}-${taskLog.sortOrder}`}>
+            <div key={`${taskLog.logId}-${date}`}>
               {/* Drop zone before the first item */}
               {index === 0 && (
                 <DropZone
                   date={date}
-                  targetTaskId={taskLog.taskId}
+                  targetLogId={taskLog.logId}
                   position="before"
                   isDoneColumn={isDone}
                   onReorder={onReorder}
@@ -534,7 +531,7 @@ function TaskColumn({
               {/* Drop zone after each item */}
               <DropZone
                 date={date}
-                targetTaskId={taskLog.taskId}
+                targetLogId={taskLog.logId}
                 position="after"
                 isDoneColumn={isDone}
                 onReorder={onReorder}
@@ -1224,8 +1221,8 @@ export default function TodoGroupTable({
     async (
       targetDate: string,
       sourceDate: string,
-      sourceTaskId: number,
-      targetTaskId: number,
+      sourceLogId: number,
+      targetLogId: number,
       position: 'before' | 'after',
       targetDone?: boolean,
     ) => {
@@ -1236,16 +1233,16 @@ export default function TodoGroupTable({
         let finalTargetDone: boolean | undefined = targetDone
         if (!targetCell && sourceDate === targetDate) return
         if (finalTargetDone === undefined) {
-          if (targetTaskId !== -1 && targetCell) {
+          if (targetLogId !== -1 && targetCell) {
             finalTargetDone = targetCell.doneTasks.some(
-              (t) => t.taskId === targetTaskId,
+              (t) => t.logId === targetLogId,
             )
           } else {
             // fallback: infer from source column on that date
             const sameDate = sourceDate === targetDate
             if (sameDate && targetCell) {
               const inDone = targetCell.doneTasks.some(
-                (t) => t.taskId === sourceTaskId,
+                (t) => t.logId === sourceLogId,
               )
               finalTargetDone = inDone
             } else {
@@ -1256,11 +1253,11 @@ export default function TodoGroupTable({
 
         // Single API to move
         await moveTaskLog({
-          taskId: sourceTaskId,
+          logId: sourceLogId,
           fromDate: sourceDate,
           toDate: targetDate,
           toDone: Boolean(finalTargetDone),
-          targetTaskId: targetTaskId === -1 ? undefined : targetTaskId,
+          targetLogId: targetLogId === -1 ? undefined : targetLogId,
           position,
         })
 

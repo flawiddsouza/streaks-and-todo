@@ -1547,34 +1547,51 @@ const api = new Elysia({ prefix: '/api' })
       const userId = session.user.id
 
       const {
-        taskId,
+        logId,
         fromDate,
         toDate,
         toDone,
-        targetTaskId,
+        targetLogId,
         position,
         extraInfo,
       } = body as {
-        taskId: number
+        logId: number
         fromDate: string
         toDate: string
         toDone: boolean
-        targetTaskId?: number
+        targetLogId?: number
         position?: 'before' | 'after'
         extraInfo?: string | null
       }
 
-      if (!taskId || Number.isNaN(Number(taskId)))
-        return status(400, { message: 'Invalid task ID' })
+      if (!logId || Number.isNaN(Number(logId)))
+        return status(400, { message: 'Invalid log ID' })
       if (!fromDate || !DATE_RE.test(fromDate))
         return status(400, { message: 'Invalid fromDate' })
       if (!toDate || !DATE_RE.test(toDate))
         return status(400, { message: 'Invalid toDate' })
 
+      // Load the source log and its task
+      const srcLogs = await db
+        .select()
+        .from(taskLogTable)
+        .where(and(eq(taskLogTable.id, logId), eq(taskLogTable.userId, userId)))
+        .limit(1)
+      if (srcLogs.length === 0)
+        return status(404, { message: 'Task log not found' })
+      const sourceLog = srcLogs[0]
+      if (sourceLog.date !== fromDate)
+        return status(400, { message: 'fromDate does not match log' })
+
       const task = await db
         .select()
         .from(tasksTable)
-        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)))
+        .where(
+          and(
+            eq(tasksTable.id, sourceLog.taskId),
+            eq(tasksTable.userId, userId),
+          ),
+        )
         .limit(1)
       if (task.length === 0) return status(404, { message: 'Task not found' })
 
@@ -1593,20 +1610,20 @@ const api = new Elysia({ prefix: '/api' })
           .orderBy(taskLogTable.sortOrder)
       }
 
-      // Helper: write contiguous sort order for a list of taskIds at date+done
+      // Helper: write contiguous sort order for a list of logIds at date+done
       const writeOrder = async (
         date: string,
         done: boolean,
-        orderedTaskIds: number[],
+        orderedLogIds: number[],
       ) => {
-        for (let i = 0; i < orderedTaskIds.length; i++) {
-          const id = orderedTaskIds[i]
+        for (let i = 0; i < orderedLogIds.length; i++) {
+          const id = orderedLogIds[i]
           await db
             .update(taskLogTable)
             .set({ sortOrder: i + 1 })
             .where(
               and(
-                eq(taskLogTable.taskId, id),
+                eq(taskLogTable.id, id),
                 eq(taskLogTable.date, date),
                 eq(taskLogTable.done, done),
                 eq(taskLogTable.userId, userId),
@@ -1615,40 +1632,30 @@ const api = new Elysia({ prefix: '/api' })
         }
       }
 
-      // Fetch source log (if any)
-      const existingSource = await db
-        .select()
-        .from(taskLogTable)
-        .where(
-          and(eq(taskLogTable.taskId, taskId), eq(taskLogTable.date, fromDate)),
-        )
-        .limit(1)
-
-      const sourceLog = existingSource[0]
-      const sourceDone = sourceLog?.done ?? false
+      const sourceDone = sourceLog.done
 
       const sameDate = fromDate === toDate
-      const togglingColumn = sourceLog ? sourceLog.done !== toDone : true
+      const togglingColumn = sourceLog.done !== toDone
 
       // Ensure we have a current extraInfo fallback
       const finalExtraInfo =
-        extraInfo !== undefined ? extraInfo : (sourceLog?.extraInfo ?? null)
+        extraInfo !== undefined ? extraInfo : (sourceLog.extraInfo ?? null)
 
-      // When reordering relative to a target task, compute the destination order array
+      // When reordering relative to a target, compute the destination order array
       const placeInList = (
         currentOrder: number[],
-        sourceTaskId: number,
-        tgtTaskId?: number,
+        sourceLogId: number,
+        tgtLogId?: number,
         pos?: 'before' | 'after',
       ) => {
-        const arr = currentOrder.filter((id) => id !== sourceTaskId)
-        if (tgtTaskId == null || !arr.includes(tgtTaskId)) {
-          arr.push(sourceTaskId)
+        const arr = currentOrder.filter((id) => id !== sourceLogId)
+        if (tgtLogId == null || !arr.includes(tgtLogId)) {
+          arr.push(sourceLogId)
           return arr
         }
-        const idx = arr.indexOf(tgtTaskId)
+        const idx = arr.indexOf(tgtLogId)
         const insertAt = pos === 'before' ? idx : idx + 1
-        arr.splice(insertAt, 0, sourceTaskId)
+        arr.splice(insertAt, 0, sourceLogId)
         return arr
       }
 
@@ -1656,83 +1663,37 @@ const api = new Elysia({ prefix: '/api' })
         if (togglingColumn) {
           // Move from one column to the other on the same date
           // 1) Update the source log's done/extraInfo and set temporary sortOrder
-          if (sourceLog) {
-            await db
-              .update(taskLogTable)
-              .set({ done: toDone, extraInfo: finalExtraInfo })
-              .where(
-                and(
-                  eq(taskLogTable.taskId, taskId),
-                  eq(taskLogTable.date, fromDate),
-                ),
-              )
-
-            // Re-pack old column
-            const oldList = await getList(fromDate, sourceDone)
-            await writeOrder(
-              fromDate,
-              sourceDone,
-              oldList.map((l) => l.taskId).filter((id) => id !== taskId),
+          await db
+            .update(taskLogTable)
+            .set({ done: toDone, extraInfo: finalExtraInfo })
+            .where(
+              and(eq(taskLogTable.id, logId), eq(taskLogTable.userId, userId)),
             )
 
-            // Build target order
-            const targetList = await getList(toDate, toDone)
-            const ordered = placeInList(
-              targetList.map((l) => l.taskId),
-              taskId,
-              targetTaskId,
-              position,
-            )
-            await writeOrder(toDate, toDone, ordered)
-          } else {
-            // No source log; create directly in target column
-            const targetList = await getList(toDate, toDone)
-            const ordered = placeInList(
-              targetList.map((l) => l.taskId),
-              taskId,
-              targetTaskId,
-              position,
-            )
-            // insert or upsert the target log first
-            const existsTarget = await db
-              .select()
-              .from(taskLogTable)
-              .where(
-                and(
-                  eq(taskLogTable.taskId, taskId),
-                  eq(taskLogTable.date, toDate),
-                ),
-              )
-              .limit(1)
-            if (existsTarget.length > 0) {
-              await db
-                .update(taskLogTable)
-                .set({ done: toDone, extraInfo: finalExtraInfo })
-                .where(
-                  and(
-                    eq(taskLogTable.taskId, taskId),
-                    eq(taskLogTable.date, toDate),
-                  ),
-                )
-            } else {
-              await db.insert(taskLogTable).values({
-                userId,
-                taskId,
-                date: toDate,
-                done: toDone,
-                extraInfo: finalExtraInfo,
-                sortOrder: 0,
-              })
-            }
-            await writeOrder(toDate, toDone, ordered)
-          }
+          // Re-pack old column (exclude the moved log)
+          const oldList = await getList(fromDate, sourceDone)
+          await writeOrder(
+            fromDate,
+            sourceDone,
+            oldList.filter((l) => l.id !== logId).map((l) => l.id),
+          )
+
+          // Build target order
+          const targetList = await getList(toDate, toDone)
+          const ordered = placeInList(
+            targetList.map((l) => l.id),
+            logId,
+            targetLogId,
+            position,
+          )
+          await writeOrder(toDate, toDone, ordered)
         } else {
           // Same column reorder only
           const list = await getList(toDate, toDone)
           const ordered = placeInList(
-            list.map((l) => l.taskId),
-            taskId,
-            targetTaskId,
+            list.map((l) => l.id),
+            logId,
+            targetLogId,
             position,
           )
           await writeOrder(toDate, toDone, ordered)
@@ -1748,72 +1709,40 @@ const api = new Elysia({ prefix: '/api' })
         }
       } else {
         // Cross-date move
-        const src = sourceLog
-        const srcDone = src?.done ?? false
+        const srcDone = sourceDone
 
-        // Build destination order on target date+toDone (excluding source if present)
+        // Move the existing log row by updating date/done/extraInfo
+        await db
+          .update(taskLogTable)
+          .set({ date: toDate, done: toDone, extraInfo: finalExtraInfo })
+          .where(
+            and(eq(taskLogTable.id, logId), eq(taskLogTable.userId, userId)),
+          )
+
+        // Build destination order on target date+toDone
         const targetList = await getList(toDate, toDone)
         const ordered = placeInList(
-          targetList.map((l) => l.taskId),
-          taskId,
-          targetTaskId,
+          targetList.map((l) => l.id),
+          logId,
+          targetLogId,
           position,
         )
-
-        // Upsert target log
-        const existsTarget = await db
-          .select()
-          .from(taskLogTable)
-          .where(
-            and(eq(taskLogTable.taskId, taskId), eq(taskLogTable.date, toDate)),
-          )
-          .limit(1)
-        if (existsTarget.length > 0) {
-          await db
-            .update(taskLogTable)
-            .set({ done: toDone, extraInfo: finalExtraInfo })
-            .where(
-              and(
-                eq(taskLogTable.taskId, taskId),
-                eq(taskLogTable.date, toDate),
-              ),
-            )
-        } else {
-          await db.insert(taskLogTable).values({
-            userId,
-            taskId,
-            date: toDate,
-            done: toDone,
-            extraInfo: finalExtraInfo,
-            sortOrder: 0,
-          })
-        }
         await writeOrder(toDate, toDone, ordered)
 
-        // Delete source log and repack its column
-        if (src) {
-          await db
-            .delete(taskLogTable)
-            .where(
-              and(
-                eq(taskLogTable.taskId, taskId),
-                eq(taskLogTable.date, fromDate),
-              ),
-            )
-          const srcList = await getList(fromDate, srcDone)
-          await writeOrder(
-            fromDate,
-            srcDone,
-            srcList.map((l) => l.taskId),
-          )
-        }
+        // Repack source column on original date
+        const srcList = await getList(fromDate, srcDone)
+        await writeOrder(
+          fromDate,
+          srcDone,
+          srcList.map((l) => l.id),
+        )
 
         // mirror streak
         if (task[0].streakId != null) {
           if (toDone === true) {
             await ensureStreakDoneForDate(task[0].streakId, toDate, userId)
           }
-          if (src?.done === true) {
+          if (srcDone === true) {
             await ensureStreakUndoneForDate(task[0].streakId, fromDate, userId)
           }
         }
@@ -1823,14 +1752,13 @@ const api = new Elysia({ prefix: '/api' })
       const [resultLog] = await db
         .select()
         .from(taskLogTable)
-        .where(
-          and(eq(taskLogTable.taskId, taskId), eq(taskLogTable.date, toDate)),
-        )
+        .where(and(eq(taskLogTable.id, logId), eq(taskLogTable.userId, userId)))
         .limit(1)
 
       broadcast(userId, {
         type: 'task.log.moved',
-        taskId,
+        taskId: sourceLog.taskId,
+        logId,
         fromDate,
         toDate,
         toDone,

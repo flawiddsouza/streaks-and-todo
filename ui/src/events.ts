@@ -23,6 +23,7 @@ export type AppEvent =
   | {
       type: 'task.log.moved'
       taskId: number
+      logId: number
       fromDate: string
       toDate: string
       toDone: boolean

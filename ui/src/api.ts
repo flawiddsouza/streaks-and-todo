@@ -728,11 +728,11 @@ export const updateTask = async (
 }
 
 export const moveTaskLog = async (payload: {
-  taskId: number
+  logId: number
   fromDate: string
   toDate: string
   toDone: boolean
-  targetTaskId?: number
+  targetLogId?: number
   position?: 'before' | 'after'
   extraInfo?: string | null
 }): Promise<ApiTaskLog> => {
