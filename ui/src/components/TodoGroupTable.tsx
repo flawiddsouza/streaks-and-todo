@@ -214,10 +214,15 @@ function DropZone({
 interface TaskItemProps {
   taskLog: TaskLog
   date: string
-  onToggle: (taskId: number, date: string) => void
+  onToggle: (taskId: number, date: string, logId: number) => void
   onDelete: (logId: number, date: string) => void
   onCopy: (taskLog: TaskLog) => void
-  onEdit: (taskId: number, date: string, currentExtraInfo: string) => void
+  onEdit: (
+    taskId: number,
+    date: string,
+    logId: number,
+    currentExtraInfo: string,
+  ) => void
   isEditing: boolean
   editValue: string
   onEditChange: (value: string) => void
@@ -325,7 +330,7 @@ function TaskItemComponent({
       <button
         type="button"
         className="todo-text"
-        onClick={() => onToggle(taskLog.taskId, date)}
+        onClick={() => onToggle(taskLog.taskId, date, taskLog.logId)}
       >
         {(() => {
           const { text, usedSubstitution } = formatTaskWithExtraInfo(
@@ -363,7 +368,7 @@ function TaskItemComponent({
         className="task-action-btn edit-task-btn"
         onClick={(e) => {
           e.stopPropagation()
-          onEdit(taskLog.taskId, date, taskLog.extraInfo || '')
+          onEdit(taskLog.taskId, date, taskLog.logId, taskLog.extraInfo || '')
         }}
         title="Edit extra info"
       >
@@ -395,11 +400,21 @@ interface TaskColumnProps {
     reset: () => void,
   ) => void
   onEnter: (inputValue: string, reset: () => void) => void
-  onToggle: (taskId: number, date: string) => void
+  onToggle: (taskId: number, date: string, logId: number) => void
   onDelete: (logId: number, date: string) => void
   onCopy: (taskLog: TaskLog) => void
-  onEdit: (taskId: number, date: string, currentExtraInfo: string) => void
-  editingTask: { taskId: number; date: string; extraInfo: string } | null
+  onEdit: (
+    taskId: number,
+    date: string,
+    logId: number,
+    currentExtraInfo: string,
+  ) => void
+  editingTask: {
+    taskId: number
+    date: string
+    logId: number
+    extraInfo: string
+  } | null
   onEditChange: (value: string) => void
   onEditSave: () => void
   onEditCancel: () => void
@@ -498,8 +513,7 @@ function TaskColumn({
         />
       ) : (
         tasks.map((taskLog, index) => {
-          const isEditing =
-            editingTask?.taskId === taskLog.taskId && editingTask?.date === date
+          const isEditing = editingTask?.logId === taskLog.logId
           return (
             <div key={`${taskLog.logId}-${date}`}>
               {/* Drop zone before the first item */}
@@ -701,6 +715,7 @@ export default function TodoGroupTable({
   const [editingTask, setEditingTask] = useState<{
     taskId: number
     date: string
+    logId: number
     extraInfo: string
   } | null>(null)
 
@@ -797,14 +812,14 @@ export default function TodoGroupTable({
   )
 
   const toggleTaskRecord = useCallback(
-    async (taskId: number, date: string) => {
+    async (taskId: number, date: string, logId: number) => {
       const taskLocation = taskLookup.get(taskId)
       if (!taskLocation) return
 
       try {
         const { groupIndex, taskIndex } = taskLocation
         const currentTask = taskData[groupIndex].tasks[taskIndex]
-        const record = currentTask.records.find((r) => r.date === date)
+        const record = currentTask.records.find((r) => r.id === logId)
         const newDone = !(record?.done ?? false)
         const updatedLog = await setTaskLog(
           taskId,
@@ -965,6 +980,7 @@ export default function TodoGroupTable({
         const { task: taskName, extraInfo } = parseTaskWithExtraInfo(
           inputValue.trim(),
         )
+
         const { task, log } = await createTaskAndLog(
           groupId,
           taskName,
@@ -982,7 +998,7 @@ export default function TodoGroupTable({
           if (existingIdx >= 0) {
             const t = { ...group.tasks[existingIdx] }
             const recs = [...t.records]
-            const idx = recs.findIndex((r) => r.date === date)
+            const idx = recs.findIndex((r) => r.id === log.id)
             if (idx >= 0) {
               recs[idx] = {
                 ...recs[idx],
@@ -1032,12 +1048,8 @@ export default function TodoGroupTable({
     [groupId, onTaskDataChange],
   )
 
-  const getAvailableTasks = useCallback(
-    (excludeTaskIds: number[]) => {
-      return allTasks.filter((task) => !excludeTaskIds.includes(task.id))
-    },
-    [allTasks],
-  )
+  // getAvailableTasks removed – suggestions should include all tasks and allow
+  // multiple entries of the same task per date (duplicates allowed).
 
   const handleTaskSelect = useCallback(
     async (
@@ -1130,14 +1142,19 @@ export default function TodoGroupTable({
   )
 
   const updateTaskExtraInfo = useCallback(
-    async (taskId: number, date: string, newExtraInfo: string) => {
+    async (
+      taskId: number,
+      date: string,
+      logId: number,
+      newExtraInfo: string,
+    ) => {
       try {
         // Use single endpoint to update extraInfo without reordering. Keep done unchanged and pass logId.
         const taskLocation = taskLookup.get(taskId)
         if (!taskLocation) return
         const { groupIndex, taskIndex } = taskLocation
         const existingRec = taskData[groupIndex].tasks[taskIndex].records.find(
-          (r) => r.date === date,
+          (r) => r.id === logId,
         )
         const log = await setTaskLog(
           taskId,
@@ -1170,8 +1187,8 @@ export default function TodoGroupTable({
   )
 
   const handleEditTask = useCallback(
-    (taskId: number, date: string, currentExtraInfo: string) => {
-      setEditingTask({ taskId, date, extraInfo: currentExtraInfo })
+    (taskId: number, date: string, logId: number, currentExtraInfo: string) => {
+      setEditingTask({ taskId, date, logId, extraInfo: currentExtraInfo })
     },
     [],
   )
@@ -1187,6 +1204,7 @@ export default function TodoGroupTable({
       await updateTaskExtraInfo(
         editingTask.taskId,
         editingTask.date,
+        editingTask.logId,
         editingTask.extraInfo,
       )
     } finally {
@@ -1380,10 +1398,8 @@ export default function TodoGroupTable({
             ? 'current-date-background'
             : ''
 
-          const todoTaskIds = dateRow.todoTasks.map((t) => t.taskId)
-          const doneTaskIds = dateRow.doneTasks.map((t) => t.taskId)
-          const usedTaskIds = [...todoTaskIds, ...doneTaskIds]
-          const availableTasks = getAvailableTasks(usedTaskIds)
+          // Show all tasks in suggestions; duplicates are allowed.
+          const availableTasks = allTasks
 
           return (
             <>
