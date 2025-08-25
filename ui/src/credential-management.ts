@@ -33,7 +33,8 @@ export async function storePasswordCredential(id: string, password: string) {
     const cred = new Ctor({ id, name: id, password })
     await creds.store?.(cred)
     notices.success('Saved sign-in to your browser (Credential Manager).')
-  } catch {
+  } catch(e) {
+    console.log(e)
     // ignore failures silently
   }
 }
@@ -47,14 +48,15 @@ export async function getStoredPasswordCredential(options?: {
     const result = (await creds.get?.({
       // The "password: true" option is non-standardly typed; pass-through as unknown
       password: true,
-      mediation: options?.mediation ?? 'optional',
+      mediation: options?.mediation ?? 'required',
     } as unknown)) as { id?: string; password?: string } | null
     if (result?.id && result?.password) {
       notices.info('Using saved sign-in from your browser.')
       return { id: result.id, password: result.password }
     }
     return null
-  } catch {
+  } catch(e) {
+    console.log(e)
     return null
   }
 }

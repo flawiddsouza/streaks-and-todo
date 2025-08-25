@@ -33,4 +33,8 @@ export const auth = betterAuth({
       origin: process.env.PASSKEY_ORIGIN || 'http://localhost:9008',
     }),
   ],
+  session: {
+    expiresIn: 30,
+    disableSessionRefresh: true
+  },
 })
