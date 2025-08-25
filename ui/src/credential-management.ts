@@ -1,4 +1,5 @@
 import { authClient } from './auth-client'
+import { notices } from './notify'
 
 type PasswordCredInit = { id: string; name?: string; password: string }
 type PasswordCredentialCtor = new (init: PasswordCredInit) => unknown
@@ -31,6 +32,7 @@ export async function storePasswordCredential(id: string, password: string) {
   try {
     const cred = new Ctor({ id, name: id, password })
     await creds.store?.(cred)
+    notices.success('Saved sign-in to your browser (Credential Manager).')
   } catch {
     // ignore failures silently
   }
@@ -48,6 +50,7 @@ export async function getStoredPasswordCredential(options?: {
       mediation: options?.mediation ?? 'optional',
     } as unknown)) as { id?: string; password?: string } | null
     if (result?.id && result?.password) {
+      notices.info('Using saved sign-in from your browser.')
       return { id: result.id, password: result.password }
     }
     return null
@@ -64,8 +67,12 @@ export async function attemptAutoSignIn(): Promise<boolean> {
       email: cred.id,
       password: cred.password,
     })
-    return !error
+    const ok = !error
+    if (ok) notices.success('Signed in using saved browser credentials.')
+    else notices.warning('Saved browser credentials failed to sign in.')
+    return ok
   } catch {
+    notices.error('Auto sign-in using saved credentials failed.')
     return false
   }
 }
@@ -77,6 +84,7 @@ export async function preventSilentCredentialAccess(): Promise<void> {
       credentials?: { preventSilentAccess?: () => Promise<void> }
     }
     await n.credentials?.preventSilentAccess?.()
+    notices.info('Cleared silent access for saved credentials.')
   } catch {
     // ignore
   }

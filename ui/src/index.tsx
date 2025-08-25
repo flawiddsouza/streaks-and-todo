@@ -10,6 +10,7 @@ import TodoGroup from './views/TodoGroup'
 import TodoGroups from './views/TodoGroups'
 import './index.css'
 import { authClient } from './auth-client'
+import Toasts from './components/Toasts'
 import { attemptAutoSignIn } from './credential-management'
 
 async function redirectIfAuthed() {
@@ -103,4 +104,9 @@ const router = createBrowserRouter([
 
 const container = document.querySelector('#root') as Element
 
-createRoot(container).render(<RouterProvider router={router} />)
+createRoot(container).render(
+  <>
+    <RouterProvider router={router} />
+    <Toasts />
+  </>,
+)
