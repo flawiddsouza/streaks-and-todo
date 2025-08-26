@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import './ManageableList.css'
+import confirmAsync from './confirmAsync'
 
 export interface ManagedItem {
   id: number
@@ -81,9 +82,8 @@ export default function ManageableList<T extends ManagedItem>({
   }
 
   const handleDeleteItem = async (itemId: number, itemName: string) => {
-    if (!confirm(config.confirmDeleteMessage(itemName))) {
-      return
-    }
+    const ok = await confirmAsync(config.confirmDeleteMessage(itemName))
+    if (!ok) return
 
     try {
       await config.deleteItem(itemId)

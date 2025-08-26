@@ -60,6 +60,7 @@ import {
   type TaskGroup,
 } from '../api'
 import './PinnedTasks.css'
+import confirmAsync from './confirmAsync'
 
 type PinTask = { taskId: number; task: string; sortOrder: number }
 type PinGroup = {
@@ -139,7 +140,8 @@ export default function PinnedTasks({
 
   const handleDeletePinGroup = useCallback(
     async (pinGroupId: number) => {
-      if (!confirm('Delete this pin group?')) return
+      const ok = await confirmAsync('Delete this pin group?')
+      if (!ok) return
       await deletePinGroup(pinGroupId)
       await refresh()
     },
