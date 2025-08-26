@@ -161,6 +161,13 @@ interface DropZoneProps {
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
+  onAddFromPin?: (
+    date: string,
+    targetLogId: number,
+    position: 'before' | 'after',
+    isDoneColumn: boolean,
+    pin: { taskId: number; extraInfo?: string },
+  ) => void
 }
 
 function DropZone({
@@ -169,6 +176,7 @@ function DropZone({
   position,
   isDoneColumn,
   onReorder,
+  onAddFromPin,
 }: DropZoneProps) {
   const dropRef = useRef<HTMLDivElement>(null)
   const [isActive, setIsActive] = useState(false)
@@ -180,27 +188,44 @@ function DropZone({
     return dropTargetForElements({
       element,
       canDrop: ({ source }) => {
-        return (
-          source.data.type === 'task-item' && source.data.logId !== targetLogId
-        )
+        if (source.data.type === 'task-item') {
+          return source.data.logId !== targetLogId
+        }
+        if (source.data.type === 'pin-item') {
+          // Allow dropping pin items anywhere
+          return true
+        }
+        return false
       },
       onDragEnter: () => setIsActive(true),
       onDragLeave: () => setIsActive(false),
       onDrop: ({ source }) => {
         setIsActive(false)
-        const sourceLogId = source.data.logId as number
-        const sourceDate = source.data.sourceDate as string
-        onReorder(
-          date,
-          sourceDate,
-          sourceLogId,
-          targetLogId,
-          position,
-          isDoneColumn,
-        )
+        if (source.data.type === 'task-item') {
+          const sourceLogId = source.data.logId as number
+          const sourceDate = source.data.sourceDate as string
+          onReorder(
+            date,
+            sourceDate,
+            sourceLogId,
+            targetLogId,
+            position,
+            isDoneColumn,
+          )
+          return
+        }
+        if (source.data.type === 'pin-item' && onAddFromPin) {
+          const taskId = source.data.taskId as number
+          const extraInfo =
+            (source.data.extraInfo as string | undefined) || undefined
+          onAddFromPin(date, targetLogId, position, isDoneColumn, {
+            taskId,
+            extraInfo,
+          })
+        }
       },
     })
-  }, [date, targetLogId, position, isDoneColumn, onReorder])
+  }, [date, targetLogId, position, isDoneColumn, onReorder, onAddFromPin])
 
   return (
     <div
@@ -432,6 +457,13 @@ interface TaskColumnProps {
     done: boolean,
     availableTasks: FlatTask[],
   ) => void
+  onAddFromPin: (
+    date: string,
+    targetLogId: number,
+    position: 'before' | 'after',
+    isDoneColumn: boolean,
+    pin: { taskId: number; extraInfo?: string },
+  ) => void
 }
 
 function TaskColumn({
@@ -452,6 +484,7 @@ function TaskColumn({
   onReorder,
   isDone,
   onPastePinned,
+  onAddFromPin,
 }: TaskColumnProps) {
   const [inputValue, setInputValue] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -510,6 +543,7 @@ function TaskColumn({
           position="after"
           isDoneColumn={isDone}
           onReorder={onReorder}
+          onAddFromPin={onAddFromPin}
         />
       ) : (
         tasks.map((taskLog, index) => {
@@ -524,6 +558,7 @@ function TaskColumn({
                   position="before"
                   isDoneColumn={isDone}
                   onReorder={onReorder}
+                  onAddFromPin={onAddFromPin}
                 />
               )}
 
@@ -549,6 +584,7 @@ function TaskColumn({
                 position="after"
                 isDoneColumn={isDone}
                 onReorder={onReorder}
+                onAddFromPin={onAddFromPin}
               />
             </div>
           )
@@ -1353,6 +1389,61 @@ export default function TodoGroupTable({
     [addTaskToCell, dateRows],
   )
 
+  // Handle dropping a pinned task into a cell list. If dropped relative to a specific
+  // task (targetLogId != -1), create the log and then reorder to the desired position.
+  const handleAddFromPin = useCallback(
+    async (
+      date: string,
+      targetLogId: number,
+      position: 'before' | 'after',
+      isDoneColumn: boolean,
+      pin: { taskId: number; extraInfo?: string },
+    ) => {
+      try {
+        // 1) Create/add the log for this task at the end of the target column
+        await addTaskToCell(pin.taskId, date, isDoneColumn, pin.extraInfo)
+
+        // 2) If a specific target item is provided, find the new log and reorder relative to it
+        if (!groupId) return
+        const updatedGroup = await fetchGroupTasks(groupId)
+        if (!updatedGroup) return
+
+        // Find the record we just added: last record for taskId on that date with matching done state
+        const t = updatedGroup.tasks.find((t) => t.id === pin.taskId)
+        const recs = (t?.records || []).filter(
+          (r) => r.date === date && r.done === isDoneColumn,
+        )
+        const newest = recs.sort((a, b) => b.id - a.id)[0]
+        if (!newest) {
+          onTaskDataChange([updatedGroup])
+          return
+        }
+
+        // If there is no specific target, just refresh state and return
+        if (targetLogId === -1) {
+          onTaskDataChange([updatedGroup])
+          return
+        }
+
+        // Reorder new log relative to the target
+        await moveTaskLog({
+          logId: newest.id,
+          fromDate: date,
+          toDate: date,
+          toDone: isDoneColumn,
+          targetLogId,
+          position,
+        })
+
+        const afterMove = await fetchGroupTasks(groupId)
+        if (afterMove) onTaskDataChange([afterMove])
+      } catch (err) {
+        console.error('Error adding from pin:', err)
+      }
+    },
+    [addTaskToCell, groupId, onTaskDataChange],
+  )
+
   if (loading) {
     return (
       <div className="virtuoso-table-container loading-container">
@@ -1422,6 +1513,7 @@ export default function TodoGroupTable({
                   onPastePinned={(date, done, avail) =>
                     handlePastePinned(date, done, avail)
                   }
+                  onAddFromPin={handleAddFromPin}
                   onTaskSelect={(selectedTask, inputValue, reset) => {
                     handleTaskSelect(
                       selectedTask,
@@ -1464,6 +1556,7 @@ export default function TodoGroupTable({
                   onPastePinned={(date, done, avail) =>
                     handlePastePinned(date, done, avail)
                   }
+                  onAddFromPin={handleAddFromPin}
                   onTaskSelect={(selectedTask, inputValue, reset) => {
                     handleTaskSelect(
                       selectedTask,

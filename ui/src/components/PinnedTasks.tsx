@@ -188,6 +188,8 @@ export default function PinnedTasks({
     useEffect(() => {
       const el = ref.current
       if (!el) return
+      // Determine default extraInfo for this task for use in drag payload
+      const taskObj = availableTasks.find((t) => t.id === item.taskId)
       return combine(
         draggable({
           element: el,
@@ -196,6 +198,13 @@ export default function PinnedTasks({
             taskId: item.taskId,
             sortOrder: item.sortOrder,
             pinGroupId,
+            // Enrich drag data so drop targets can use defaults without extra lookups
+            task: item.task,
+            extraInfo:
+              taskObj?.defaultExtraInfo &&
+              taskObj.defaultExtraInfo.trim() !== ''
+                ? taskObj.defaultExtraInfo
+                : undefined,
           }),
           onDragStart: () => setDragging(true),
           onDrop: () => setDragging(false),
