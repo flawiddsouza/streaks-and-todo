@@ -2,12 +2,14 @@ import dayjs from 'dayjs'
 import {
   type Dispatch,
   type SetStateAction,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
 import { TableVirtuoso } from 'react-virtuoso'
 import {
+  renameStreak,
   type StreakGroup,
   type StreakRecord,
   toggleStreakLog,
@@ -136,6 +138,16 @@ export default function StreakGroupTable({
       }
     | { isOpen: false }
   >({ isOpen: false })
+  const [renameModal, setRenameModal] = useState<
+    { isOpen: true; streakId: number; oldName: string } | { isOpen: false }
+  >({ isOpen: false })
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (renameModal.isOpen) {
+      setTimeout(() => renameInputRef.current?.focus(), 0)
+    }
+  }, [renameModal.isOpen])
 
   const allStreaks = useMemo(() => {
     return streakData.flatMap((group) =>
@@ -470,6 +482,44 @@ export default function StreakGroupTable({
 
   const currentDate = dayjs().format('YYYY-MM-DD')
 
+  const handleRenameStreak = async (streakId: number, oldName: string) => {
+    setRenameModal({ isOpen: true, streakId, oldName })
+  }
+
+  const closeRenameModal = () => setRenameModal({ isOpen: false })
+
+  const submitRename = async () => {
+    if (!renameModal.isOpen) return
+    const input = renameInputRef.current
+    if (!input) return
+    const newName = input.value.trim()
+    if (!newName || newName === renameModal.oldName) {
+      closeRenameModal()
+      return
+    }
+
+    try {
+      const updated = await renameStreak(renameModal.streakId, newName)
+      onStreakDataChange((prev) => {
+        return prev.map((group) => ({
+          ...group,
+          streaks: group.streaks.map((s) =>
+            s.id === updated.id ? { ...s, name: updated.name } : s,
+          ),
+        }))
+      })
+      closeRenameModal()
+    } catch (err) {
+      console.error('Failed to rename streak:', err)
+      // show an alert inside modal
+      if (typeof (err as Error).message === 'string') {
+        alert((err as Error).message)
+      } else {
+        alert('Failed to rename streak')
+      }
+    }
+  }
+
   if (loading)
     return (
       <div className="virtuoso-table-container loading-container">
@@ -532,8 +582,12 @@ export default function StreakGroupTable({
             <th className="header-cell header-cell-date">Date</th>
             <th className="header-cell header-cell-day">Day</th>
             {allStreaks.map((streak) => (
-              <th key={streak.name} className="header-cell header-cell-streak">
-                <div>{streak.name}</div>
+              <th
+                key={streak.name}
+                className="header-cell header-cell-streak"
+                onClick={() => handleRenameStreak(streak.id, streak.name)}
+              >
+                {streak.name}
               </th>
             ))}
             <th className="header-cell header-cell-notes">Notes</th>
@@ -660,6 +714,52 @@ export default function StreakGroupTable({
           )
         }}
       />
+      {renameModal.isOpen && (
+        <Modal
+          isOpen={true}
+          onClose={closeRenameModal}
+          title="Rename streak"
+          maxWidth="480px"
+        >
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+          >
+            <input
+              ref={renameInputRef}
+              defaultValue={renameModal.isOpen ? renameModal.oldName : ''}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  submitRename()
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  closeRenameModal()
+                }
+              }}
+              className="streak-name-input"
+            />
+            <div
+              style={{
+                display: 'flex',
+                gap: '0.5rem',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <button type="button" onClick={closeRenameModal} className="btn">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitRename}
+                className="btn btn-primary"
+              >
+                Rename
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

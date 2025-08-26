@@ -772,6 +772,69 @@ const api = new Elysia({ prefix: '/api' })
       return status(500, { message: 'Internal server error' })
     }
   })
+  .put(
+    '/streaks/:streakId',
+    async ({ params: { streakId }, body, status, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return status(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const streakIdNum = parseInt(streakId)
+        const { name } = body as { name: string }
+
+        if (Number.isNaN(streakIdNum)) {
+          return status(400, { message: 'Invalid streak ID' })
+        }
+
+        if (!name || name.trim().length === 0) {
+          return status(400, { message: 'Streak name is required' })
+        }
+
+        const existing = await db
+          .select()
+          .from(streaksTable)
+          .where(
+            and(
+              eq(streaksTable.name, name.trim()),
+              eq(streaksTable.userId, userId),
+            ),
+          )
+          .limit(1)
+
+        if (existing.length > 0 && existing[0].id !== streakIdNum) {
+          return status(409, {
+            message: 'Streak with this name already exists',
+          })
+        }
+
+        const [updated] = await db
+          .update(streaksTable)
+          .set({ name: name.trim() })
+          .where(
+            and(
+              eq(streaksTable.id, streakIdNum),
+              eq(streaksTable.userId, userId),
+            ),
+          )
+          .returning()
+
+        if (!updated) {
+          return status(404, { message: 'Streak not found' })
+        }
+
+        // Broadcast that streak metadata changed so UIs can refresh
+        broadcast(userId, {
+          type: 'streak.meta.updated',
+          streakId: streakIdNum,
+        })
+
+        return { streak: updated }
+      } catch (err) {
+        console.error('Error renaming streak:', err)
+        return status(500, { message: 'Internal server error' })
+      }
+    },
+  )
   .post(
     '/groups/:groupId/streaks',
     async ({ params: { groupId }, body, status, request }) => {

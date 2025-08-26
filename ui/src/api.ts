@@ -579,6 +579,30 @@ export const createStreak = async (name: string): Promise<ApiStreak> => {
   return data.streak
 }
 
+export const renameStreak = async (
+  streakId: number,
+  name: string,
+): Promise<ApiStreak> => {
+  const response = await apiFetch(`/streaks/${streakId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!response.ok) {
+    let message = 'Failed to rename streak'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('renameStreak error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+
+  const data = await response.json()
+  return data.streak
+}
+
 export const createGroup = async (
   name: string,
   type: 'streaks' | 'tasks',
