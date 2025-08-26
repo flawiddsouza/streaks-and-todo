@@ -727,6 +727,25 @@ export const updateTask = async (
   return data.task
 }
 
+export const fillMissingStreaksForTask = async (
+  taskId: number,
+): Promise<{ date: string; task: string }[]> => {
+  const response = await apiFetch(`/tasks/${taskId}/fill-missing-streaks`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    let message = 'Failed to fill missing streaks'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('fillMissingStreaksForTask error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return data.added || []
+}
+
 export const moveTaskLog = async (payload: {
   logId: number
   fromDate: string

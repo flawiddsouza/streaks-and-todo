@@ -2309,6 +2309,105 @@ const api = new Elysia({ prefix: '/api' })
     },
   )
 
+  // Fill any missing streak logs for dates where a task was marked done but the
+  // linked streak has no entry. Returns the list of dates that were added.
+  .post(
+    '/tasks/:taskId/fill-missing-streaks',
+    async ({ params: { taskId }, status, request }) => {
+      try {
+        const session = await auth.api.getSession({ headers: request.headers })
+        if (!session) return status(401, { message: 'Unauthorized' })
+        const userId = session.user.id
+        const taskIdNum = parseInt(taskId)
+
+        if (Number.isNaN(taskIdNum)) {
+          return status(400, { message: 'Invalid task ID' })
+        }
+
+        const found = await db
+          .select()
+          .from(tasksTable)
+          .where(
+            and(eq(tasksTable.id, taskIdNum), eq(tasksTable.userId, userId)),
+          )
+          .limit(1)
+
+        if (found.length === 0) {
+          return status(404, { message: 'Task not found' })
+        }
+
+        const taskRow = found[0]
+        const linkedStreakId = taskRow.streakId
+        if (linkedStreakId == null) {
+          return status(400, { message: 'Task is not linked to a streak' })
+        }
+
+        // Get distinct dates where this task has a done log
+        const rows = await db
+          .select({ date: taskLogTable.date })
+          .from(taskLogTable)
+          .where(
+            and(
+              eq(taskLogTable.taskId, taskIdNum),
+              eq(taskLogTable.done, true),
+              eq(taskLogTable.userId, userId),
+            ),
+          )
+          .orderBy(taskLogTable.date)
+
+        const dates = Array.from(new Set(rows.map((r) => r.date)))
+        const added: string[] = []
+
+        for (const date of dates) {
+          const existing = await db
+            .select()
+            .from(streakLogTable)
+            .where(
+              and(
+                eq(streakLogTable.streakId, linkedStreakId),
+                eq(streakLogTable.date, date),
+              ),
+            )
+            .limit(1)
+
+          if (existing.length === 0) {
+            await db
+              .insert(streakLogTable)
+              .values({ userId, streakId: linkedStreakId, date, done: true })
+              .returning()
+            added.push(date)
+            broadcast(userId, {
+              type: 'streak.log.updated',
+              streakId: linkedStreakId,
+              date,
+            })
+          } else if (!existing[0].done) {
+            await db
+              .update(streakLogTable)
+              .set({ done: true })
+              .where(
+                and(
+                  eq(streakLogTable.streakId, linkedStreakId),
+                  eq(streakLogTable.date, date),
+                ),
+              )
+            added.push(date)
+            broadcast(userId, {
+              type: 'streak.log.updated',
+              streakId: linkedStreakId,
+              date,
+            })
+          }
+        }
+
+        return { added: added.map((d) => ({ date: d, task: taskRow.task })) }
+      } catch (err) {
+        console.error('Error filling missing streak logs:', err)
+        return status(500, { message: 'Internal server error' })
+      }
+    },
+  )
+
 const app = new Elysia()
   .use(
     staticPlugin({
