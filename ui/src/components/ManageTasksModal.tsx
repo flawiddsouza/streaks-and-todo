@@ -33,6 +33,7 @@ export default function ManageTasksModal({
   const [drafts, setDrafts] = useState<TaskDrafts>({})
   const [saving, setSaving] = useState<Record<number, boolean>>({})
   const [allStreaks, setAllStreaks] = useState<ApiStreak[]>([])
+  const [filter, setFilter] = useState<string>('')
 
   useEffect(() => {
     if (!group) return
@@ -59,11 +60,22 @@ export default function ManageTasksModal({
 
   const tasks = useMemo(() => {
     const list = group?.tasks ?? []
+    const normalizedFilter = filter.trim().toLowerCase()
+    const filtered = normalizedFilter
+      ? list.filter((t) => {
+          const name = (t.task || '').toLowerCase()
+          const extra = (t.defaultExtraInfo || '').toLowerCase()
+          return (
+            name.includes(normalizedFilter) || extra.includes(normalizedFilter)
+          )
+        })
+      : list
+
     // Client-side alphabetical order by task name (case-insensitive)
-    return [...list].sort((a, b) =>
+    return [...filtered].sort((a, b) =>
       a.task.localeCompare(b.task, undefined, { sensitivity: 'base' }),
     )
-  }, [group])
+  }, [group, filter])
 
   if (!group) return null
 
@@ -107,6 +119,17 @@ export default function ManageTasksModal({
     >
       <div className="manage-section">
         <h3>Tasks in this group</h3>
+        <div style={{ marginBottom: 8 }}>
+          <input
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter tasks by name or extra info..."
+            className="streak-name-input"
+            style={{ width: '100%' }}
+            spellCheck="false"
+          />
+        </div>
         <div className="streak-list">
           {tasks.map((t) => (
             <div key={t.id} className="streak-item">
