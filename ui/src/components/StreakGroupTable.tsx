@@ -738,6 +738,7 @@ export default function StreakGroupTable({
                 }
               }}
               className="streak-name-input"
+              spellCheck={false}
             />
             <div
               style={{
