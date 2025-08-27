@@ -1,4 +1,5 @@
 import { config } from './config'
+import { formatTaskWithExtraInfo } from './helpers'
 
 const API_BASE_URL = config.apiBaseUrl
 
@@ -160,9 +161,17 @@ export const fetchGroupStreaks = async (
           addedByTasks:
             (streak.tasks || [])
               .filter((t) => t.logs.some((l) => l.date === log.date && l.done))
-              .map((t) =>
-                t.groupName ? `${t.task} — ${t.groupName}` : t.task,
-              ) || undefined,
+              .map((t) => {
+                const matchingLog = t.logs.find(
+                  (l) => l.date === log.date && l.done,
+                )
+                const extraInfo = matchingLog?.extraInfo ?? undefined
+                const substitutedTask = formatTaskWithExtraInfo(
+                  t.task,
+                  extraInfo,
+                ).text
+                return `${substitutedTask} — ${t.groupName}`
+              }) || undefined,
         })),
       })),
     }
