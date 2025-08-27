@@ -37,6 +37,29 @@
   cursor: pointer;
 }
 
+.pin-group-collapse {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  color: #374151;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 4px;
+}
+
+.pin-group-collapse:hover {
+  background: #f3f4f6;
+}
+
+.pin-group-collapse:focus {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
 .pin-group-row.drag-over {
   outline: 2px dashed #93c5fd;
   border-radius: 6px;

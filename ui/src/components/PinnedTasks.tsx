@@ -446,6 +446,27 @@ function PinGroupRow({
   const ref = useRef<HTMLDivElement>(null)
   const [name, setName] = useState(group.name)
   const [dragOver, setDragOver] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try {
+      const stored = localStorage.getItem(
+        `Streaks-&-Todo_PinGroupCollapsed_${group.id}`,
+      )
+      return stored ? JSON.parse(stored) : false
+    } catch {
+      return false
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        `Streaks-&-Todo_PinGroupCollapsed_${group.id}`,
+        JSON.stringify(isCollapsed),
+      )
+    } catch {
+      // ignore
+    }
+  }, [isCollapsed, group.id])
 
   useEffect(() => {
     const el = ref.current
@@ -482,6 +503,15 @@ function PinGroupRow({
       className={`pin-group pin-group-row ${dragOver ? 'drag-over' : ''}`}
     >
       <div className="pin-group-header">
+        <button
+          type="button"
+          className="pin-group-collapse"
+          onClick={() => setIsCollapsed((c: boolean) => !c)}
+          aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? 'Expand group' : 'Collapse group'}
+        >
+          {isCollapsed ? '▶' : '▼'}
+        </button>
         <input
           className="pin-group-title"
           type="text"
@@ -538,7 +568,7 @@ function PinGroupRow({
           </button>
         </div>
       </div>
-      {children}
+      {!isCollapsed && children}
     </div>
   )
 }
