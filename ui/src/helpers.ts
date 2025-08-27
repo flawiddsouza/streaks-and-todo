@@ -1,9 +1,9 @@
 export function formatTaskWithExtraInfo(
   taskName: string,
   extraInfo?: string,
-): { text: string; usedSubstitution: boolean } {
+): { text: string } {
   const TOKENS = ['$x']
-  if (!extraInfo) return { text: taskName, usedSubstitution: false }
+  if (!extraInfo) return { text: taskName }
 
   let text = taskName
   let used = false
@@ -13,5 +13,10 @@ export function formatTaskWithExtraInfo(
       used = true
     }
   }
-  return { text, usedSubstitution: used }
+
+  if (!used && extraInfo.trim().length > 0) {
+    text += ` (${extraInfo})`
+  }
+
+  return { text }
 }

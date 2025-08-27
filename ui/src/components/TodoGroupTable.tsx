@@ -341,23 +341,11 @@ function TaskItemComponent({
         onClick={() => onToggle(taskLog.taskId, date, taskLog.logId)}
       >
         {(() => {
-          const { text, usedSubstitution } = formatTaskWithExtraInfo(
+          const { text } = formatTaskWithExtraInfo(
             taskLog.task,
             taskLog.extraInfo,
           )
-          return (
-            <>
-              {text}
-              {!usedSubstitution &&
-                taskLog.extraInfo &&
-                taskLog.extraInfo.trim().length > 0 && (
-                  <span className="task-extra-info">
-                    {' '}
-                    ({taskLog.extraInfo})
-                  </span>
-                )}
-            </>
-          )
+          return text
         })()}
       </button>
       <button
