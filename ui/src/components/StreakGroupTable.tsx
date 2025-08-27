@@ -133,7 +133,7 @@ export default function StreakGroupTable({
         isOpen: true
         date: string
         streakName: string
-        tasks: string[]
+        tasks: { task: string; group: string }[]
         message?: string
       }
     | { isOpen: false }
@@ -304,24 +304,19 @@ export default function StreakGroupTable({
       const message =
         (error as Error)?.message || 'Failed to toggle streak record'
       // Try to parse tasks from message (fallback) — server also sends details.tasks
-      let tasks: string[] = []
+      let tasks: { task: string; group: string }[] = []
       const anyErr = error as Error & {
         details?: {
           tasks?: string[]
           items?: { task: string; group?: string }[]
         }
       }
-      if (anyErr.details?.items && Array.isArray(anyErr.details.items)) {
-        tasks = anyErr.details.items.map((i) =>
-          i.group ? `${i.task} — ${i.group}` : i.task,
-        )
-      } else if (anyErr.details?.tasks && Array.isArray(anyErr.details.tasks)) {
-        tasks = anyErr.details.tasks
-      } else {
-        const match = message.match(/task\(s\):\s(.+)\.\sUndo/i)
-        if (match?.[1]) {
-          tasks = match[1].split(',').map((s) => s.trim())
-        }
+      if (anyErr.details?.items) {
+        tasks = anyErr.details.items
+          .filter(
+            (item): item is { task: string; group: string } => !!item.group,
+          )
+          .map((item) => ({ task: item.task, group: item.group }))
       }
 
       if (tasks.length > 0 || message) {
@@ -520,6 +515,20 @@ export default function StreakGroupTable({
     }
   }
 
+  const groupTasks = (tasks: { task: string; group: string }[]) => {
+    const groups = new Map<string, { task: string; group: string }[]>()
+    for (const taskObj of tasks) {
+      const groupName = taskObj.group
+      let group = groups.get(groupName)
+      if (!group) {
+        group = []
+        groups.set(groupName, group)
+      }
+      group.push(taskObj)
+    }
+    return groups
+  }
+
   if (loading)
     return (
       <div className="virtuoso-table-container loading-container">
@@ -564,11 +573,24 @@ export default function StreakGroupTable({
                 "This streak was set by task(s) and can't be removed here."}
             </div>
             {blockInfo.tasks?.length > 0 && (
-              <ul style={{ paddingLeft: '1.2rem', margin: 0 }}>
-                {blockInfo.tasks.map((t) => (
-                  <li key={t}>{t}</li>
-                ))}
-              </ul>
+              <div>
+                {Array.from(groupTasks(blockInfo.tasks).entries()).map(
+                  ([groupName, taskNames]) => (
+                    <div key={groupName} style={{ marginBottom: '1rem' }}>
+                      <div
+                        style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}
+                      >
+                        {groupName}
+                      </div>
+                      <ul style={{ paddingLeft: '1.2rem', margin: 0 }}>
+                        {taskNames.map((taskObj) => (
+                          <li key={taskObj.task}>{taskObj.task}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ),
+                )}
+              </div>
             )}
           </div>
         </Modal>

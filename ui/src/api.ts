@@ -50,7 +50,7 @@ export interface ApiTask {
   defaultExtraInfo: string | null
   streakId?: number | null
   logs: ApiTaskLog[]
-  groupName?: string
+  groupName: string
 }
 
 export interface ApiGroup {
@@ -85,7 +85,7 @@ export interface StreakRecord {
   date: string
   done: boolean
   note?: string
-  addedByTasks?: string[]
+  addedByTasks?: { task: string; group: string }[]
 }
 
 export interface TaskRecord {
@@ -170,7 +170,7 @@ export const fetchGroupStreaks = async (
                   t.task,
                   extraInfo,
                 ).text
-                return `${substitutedTask} — ${t.groupName}`
+                return { task: substitutedTask, group: t.groupName }
               }) || undefined,
         })),
       })),
