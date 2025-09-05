@@ -36,6 +36,8 @@ interface TodoGroupTableProps {
   error: string | null
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
   groupId?: number
+  filterQuery?: string
+  onFilteredCountChange?: (count: number) => void
 }
 
 interface TaskLog {
@@ -244,6 +246,7 @@ interface TaskItemProps {
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
+  filterQuery?: string
 }
 
 function TaskItemComponent({
@@ -259,10 +262,36 @@ function TaskItemComponent({
   onEditSave,
   onEditCancel,
   onReorder,
+  filterQuery = '',
 }: TaskItemProps) {
   const dragRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [isDraggedOver, setIsDraggedOver] = useState(false)
+
+  // Helper function to highlight matching text
+  const highlightText = (text: string, query: string) => {
+    if (!query.trim()) return text
+
+    const regex = new RegExp(
+      `(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
+      'gi',
+    )
+    const parts = text.split(regex)
+
+    return parts.map((part, index) => {
+      if (regex.test(part)) {
+        return (
+          <mark
+            key={`match-${part}-${Date.now()}-${index}`}
+            style={{ backgroundColor: '#ffef9c', color: '#000' }}
+          >
+            {part}
+          </mark>
+        )
+      }
+      return <span key={`text-${part}-${Date.now()}-${index}`}>{part}</span>
+    })
+  }
 
   useEffect(() => {
     if (isEditing) return
@@ -345,6 +374,11 @@ function TaskItemComponent({
             taskLog.task,
             taskLog.extraInfo,
           )
+
+          if (filterQuery.trim()) {
+            return highlightText(text, filterQuery.trim())
+          }
+
           return text
         })()}
       </button>
@@ -435,6 +469,7 @@ interface TaskColumnProps {
     isDoneColumn: boolean,
     pin: { taskId: number; extraInfo?: string },
   ) => void
+  filterQuery?: string
 }
 
 function TaskColumn({
@@ -456,6 +491,7 @@ function TaskColumn({
   isDone,
   onPastePinned,
   onAddFromPin,
+  filterQuery = '',
 }: TaskColumnProps) {
   const [inputValue, setInputValue] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
@@ -546,6 +582,7 @@ function TaskColumn({
                 onEditSave={onEditSave}
                 onEditCancel={onEditCancel}
                 onReorder={onReorder}
+                filterQuery={filterQuery}
               />
 
               {/* Drop zone after each item */}
@@ -717,6 +754,8 @@ export default function TodoGroupTable({
   error,
   onTaskDataChange,
   groupId,
+  filterQuery = '',
+  onFilteredCountChange,
 }: TodoGroupTableProps) {
   // Input state is now managed locally inside TaskColumn to avoid caret jumps
   const [editingTask, setEditingTask] = useState<{
@@ -756,7 +795,7 @@ export default function TodoGroupTable({
     })
     const allDates = generateDateRange(Array.from(dateSet))
 
-    return allDates.map((date) => {
+    const rows = allDates.map((date) => {
       const dayOfWeek = dayjs(date).format('dddd')
       const doneTasks: TaskLog[] = []
       const todoTasks: TaskLog[] = []
@@ -792,7 +831,36 @@ export default function TodoGroupTable({
         note: dateNoteMap.get(date) || '',
       }
     })
-  }, [allTasks, dateNoteMap])
+
+    // Apply filtering if filterQuery is provided
+    if (filterQuery.trim()) {
+      const query = filterQuery.toLowerCase().trim()
+      return rows.filter((row) => {
+        // Check if any task in this day matches the filter
+        const hasMatchingTask = [...row.doneTasks, ...row.todoTasks].some(
+          (task) => {
+            const taskText = task.task.toLowerCase()
+            const extraInfoText = (task.extraInfo || '').toLowerCase()
+            return taskText.includes(query) || extraInfoText.includes(query)
+          },
+        )
+
+        // Also check if the note contains the filter query
+        const hasMatchingNote = row.note.toLowerCase().includes(query)
+
+        return hasMatchingTask || hasMatchingNote
+      })
+    }
+
+    return rows
+  }, [allTasks, dateNoteMap, filterQuery])
+
+  // Notify parent of filtered count changes
+  useEffect(() => {
+    if (onFilteredCountChange) {
+      onFilteredCountChange(dateRows.length)
+    }
+  }, [dateRows.length, onFilteredCountChange])
 
   const updateNoteContent = useCallback(
     async (date: string, newNote: string) => {
@@ -1515,6 +1583,7 @@ export default function TodoGroupTable({
                   onEditSave={handleEditSave}
                   onEditCancel={handleEditCancel}
                   onReorder={handleTaskReorder}
+                  filterQuery={filterQuery}
                 />
               </td>
               <td className={`table-cell todo-cell ${rowBackgroundClass}`}>
@@ -1558,6 +1627,7 @@ export default function TodoGroupTable({
                   onEditSave={handleEditSave}
                   onEditCancel={handleEditCancel}
                   onReorder={handleTaskReorder}
+                  filterQuery={filterQuery}
                 />
               </td>
               <td className={`table-cell notes-cell ${rowBackgroundClass}`}>

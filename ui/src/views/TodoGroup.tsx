@@ -17,6 +17,8 @@ export default function TodoGroup() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showManageTasks, setShowManageTasks] = useState(false)
+  const [filterQuery, setFilterQuery] = useState('')
+  const [filteredCount, setFilteredCount] = useState(0)
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   const handleTitleChange = async (
@@ -124,13 +126,45 @@ export default function TodoGroup() {
         </div>
         <div className="nav-right">
           {groupId && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setShowManageTasks(true)}
-            >
-              Manage Tasks
-            </button>
+            <>
+              {filterQuery.trim() && (
+                <div
+                  className="filter-info"
+                  style={{
+                    marginRight: '12px',
+                    color: '#666',
+                    backgroundColor: '#f5f5f5',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    padding: '6px 12px',
+                  }}
+                >
+                  <span>
+                    <strong>{filteredCount}</strong>{' '}
+                    {filteredCount === 1 ? 'day' : 'days'} found
+                  </span>
+                </div>
+              )}
+              <div className="filter-container" style={{ marginRight: '12px' }}>
+                <input
+                  type="search"
+                  placeholder="Filter tasks..."
+                  value={filterQuery}
+                  onChange={(e) => setFilterQuery(e.target.value)}
+                  className="streak-name-input"
+                  style={{
+                    width: '200px',
+                  }}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setShowManageTasks(true)}
+              >
+                Manage Tasks
+              </button>
+            </>
           )}
         </div>
       </nav>
@@ -153,6 +187,8 @@ export default function TodoGroup() {
         error={error}
         onTaskDataChange={setTaskData}
         groupId={groupId ? parseInt(groupId, 10) : undefined}
+        filterQuery={filterQuery}
+        onFilteredCountChange={setFilteredCount}
       />
 
       {taskData[0] && groupId && (
