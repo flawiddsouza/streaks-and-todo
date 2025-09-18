@@ -15,7 +15,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { TableVirtuoso } from 'react-virtuoso'
+import { TableVirtuoso, type TableVirtuosoHandle } from 'react-virtuoso'
 import {
   createTaskAndLog,
   deleteTaskLogById,
@@ -855,6 +855,32 @@ export default function TodoGroupTable({
     return rows
   }, [allTasks, dateNoteMap, filterQuery])
 
+  // Keep previous filterQuery to detect clearing of the filter
+  const prevFilterRef = useRef<string>(filterQuery)
+
+  const virtuosoRef = useRef<TableVirtuosoHandle | null>(null)
+
+  useEffect(() => {
+    const prev = prevFilterRef.current
+    // If previous filter was non-empty and now it's empty, scroll to bottom
+    if (prev.trim() && !filterQuery.trim()) {
+      // scroll to last item (most recent date)
+      const lastIndex = dateRows.length - 1
+      if (lastIndex >= 0) {
+        // Ensure the list has rendered before scrolling
+        requestAnimationFrame(() => {
+          try {
+            virtuosoRef.current?.scrollToIndex({ index: lastIndex, align: 'end' })
+          } catch (err) {
+            // don't break on errors
+            console.error('Failed to scroll virtuoso to bottom:', err)
+          }
+        })
+      }
+    }
+    prevFilterRef.current = filterQuery
+  }, [filterQuery, dateRows.length])
+
   // Notify parent of filtered count changes
   useEffect(() => {
     if (onFilteredCountChange) {
@@ -1509,6 +1535,7 @@ export default function TodoGroupTable({
   return (
     <div className="todo-table-container virtuoso-table-container">
       <TableVirtuoso
+        ref={virtuosoRef}
         data={dateRows}
         initialTopMostItemIndex={dateRows.length - 1}
         increaseViewportBy={2000}
