@@ -839,9 +839,9 @@ export default function TodoGroupTable({
         // Check if any task in this day matches the filter
         const hasMatchingTask = [...row.doneTasks, ...row.todoTasks].some(
           (task) => {
-            const taskText = task.task.toLowerCase()
-            const extraInfoText = (task.extraInfo || '').toLowerCase()
-            return taskText.includes(query) || extraInfoText.includes(query)
+            // Use the formatted text that users actually see for filtering
+            const { text } = formatTaskWithExtraInfo(task.task, task.extraInfo || '')
+            return text.toLowerCase().includes(query)
           },
         )
 
