@@ -120,17 +120,59 @@ const buildTaskLookup = (taskData: TaskGroup[]) => {
 
 // getOrCreateTask helper removed; new flow uses createTaskAndLog in one call
 
-const parseTaskWithExtraInfo = (
+export const parseTaskWithExtraInfo = (
   taskText: string,
 ): { task: string; extraInfo?: string } => {
-  const match = taskText.match(/^(.+?)\s*\(([^)]+)\)\s*$/)
-  if (match) {
-    return {
-      task: match[1].trim(),
-      extraInfo: match[2].trim(),
+  const trimmed = taskText.trim()
+  if (!trimmed.includes('(')) {
+    return { task: trimmed }
+  }
+
+  let depth = 0
+  let closingIndex = -1
+
+  for (let idx = trimmed.length - 1; idx >= 0; idx -= 1) {
+    const char = trimmed[idx]
+    if (char === ')') {
+      if (closingIndex === -1) {
+        closingIndex = idx
+      }
+      depth += 1
+      continue
+    }
+
+    if (char === '(' && closingIndex !== -1) {
+      depth -= 1
+      if (depth === 0) {
+        const task = trimmed.slice(0, idx).trim()
+        const extraInfo = trimmed.slice(idx + 1, closingIndex).trim()
+
+        if (task) {
+          if (extraInfo) {
+            return { task, extraInfo }
+          }
+          return { task }
+        }
+      }
     }
   }
-  return { task: taskText.trim() }
+
+  if (trimmed.indexOf(')') === -1) {
+    const openIndex = trimmed.lastIndexOf('(')
+    if (openIndex >= 0) {
+      const task = trimmed.slice(0, openIndex).trim()
+      const extraInfo = trimmed.slice(openIndex + 1).trim()
+
+      if (task) {
+        if (extraInfo) {
+          return { task, extraInfo }
+        }
+        return { task }
+      }
+    }
+  }
+
+  return { task: trimmed }
 }
 
 interface DropZoneProps {
@@ -840,7 +882,10 @@ export default function TodoGroupTable({
         const hasMatchingTask = [...row.doneTasks, ...row.todoTasks].some(
           (task) => {
             // Use the formatted text that users actually see for filtering
-            const { text } = formatTaskWithExtraInfo(task.task, task.extraInfo || '')
+            const { text } = formatTaskWithExtraInfo(
+              task.task,
+              task.extraInfo || '',
+            )
             return text.toLowerCase().includes(query)
           },
         )
@@ -870,7 +915,10 @@ export default function TodoGroupTable({
         // Ensure the list has rendered before scrolling
         requestAnimationFrame(() => {
           try {
-            virtuosoRef.current?.scrollToIndex({ index: lastIndex, align: 'end' })
+            virtuosoRef.current?.scrollToIndex({
+              index: lastIndex,
+              align: 'end',
+            })
           } catch (err) {
             // don't break on errors
             console.error('Failed to scroll virtuoso to bottom:', err)

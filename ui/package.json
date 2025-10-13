@@ -6,7 +6,8 @@
     "start": "farm start",
     "build": "farm build",
     "preview": "farm preview",
-    "clean": "farm clean"
+    "clean": "farm clean",
+    "test": "vitest run"
   },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.4",
@@ -24,8 +25,10 @@
     "@farmfe/core": "^1.6.7",
     "@farmfe/plugin-react": "^1.2.0",
     "@types/react": "18",
-    "core-js": "^3.36.1",
     "@types/react-dom": "18",
-    "react-refresh": "^0.14.0"
+    "core-js": "^3.36.1",
+    "jsdom": "^27.0.0",
+    "react-refresh": "^0.14.0",
+    "vitest": "^3.2.4"
   }
 }
