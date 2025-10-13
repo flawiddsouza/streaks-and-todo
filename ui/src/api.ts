@@ -153,26 +153,28 @@ export const fetchGroupStreaks = async (
       streaks: data.streaks.map((streak) => ({
         id: streak.id,
         name: streak.name,
-        records: streak.logs.map((log) => ({
-          date: log.date,
-          done: log.done,
-          note: log.note || undefined,
-          // if API bundled linked tasks, compute which tasks mark this date as done
-          addedByTasks:
-            (streak.tasks || [])
-              .filter((t) => t.logs.some((l) => l.date === log.date && l.done))
-              .map((t) => {
-                const matchingLog = t.logs.find(
-                  (l) => l.date === log.date && l.done,
-                )
-                const extraInfo = matchingLog?.extraInfo ?? undefined
+        records: streak.logs.map((log) => {
+          const addedByTasks = (streak.tasks || []).flatMap((t) =>
+            t.logs
+              .filter((l) => l.date === log.date && l.done)
+              .map((matchingLog) => {
+                const extraInfo = matchingLog.extraInfo ?? undefined
                 const substitutedTask = formatTaskWithExtraInfo(
                   t.task,
                   extraInfo,
                 ).text
                 return { task: substitutedTask, group: t.groupName }
-              }) || undefined,
-        })),
+              }),
+          )
+
+          return {
+            date: log.date,
+            done: log.done,
+            note: log.note || undefined,
+            // if API bundled linked tasks, compute which tasks mark this date as done
+            addedByTasks: addedByTasks.length > 0 ? addedByTasks : undefined,
+          }
+        }),
       })),
     }
   } catch (err) {
