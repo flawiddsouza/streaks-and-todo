@@ -61,8 +61,15 @@ import {
 } from '../api'
 import './PinnedTasks.css'
 import confirmAsync from './confirmAsync'
+import { parseTaskWithExtraInfo } from './TodoGroupTable'
 
-type PinTask = { taskId: number; task: string; sortOrder: number }
+type PinTask = {
+  id: number
+  taskId: number
+  task: string
+  extraInfo?: string | null
+  sortOrder: number
+}
 type PinGroup = {
   id: number
   name: string
@@ -108,14 +115,6 @@ export default function PinnedTasks({
     }))
   }, [groupData, availableTaskIds])
 
-  const defaultExtraInfoByTaskId = useMemo(() => {
-    const map = new Map<number, string | null>()
-    for (const t of availableTasks) {
-      map.set(t.id, t.defaultExtraInfo ?? null)
-    }
-    return map
-  }, [availableTasks])
-
   const refresh = useCallback(async () => {
     const updated = await fetchGroupTasks(parentGroupId)
     if (updated) onRefresh(updated)
@@ -152,14 +151,19 @@ export default function PinnedTasks({
     async (pinGroupId: number, inputValue: string) => {
       const trimmed = inputValue.trim()
       if (!trimmed) return
+
+      // Parse task name and extraInfo from input (e.g., "task name (extra info)")
+      const { task: taskName, extraInfo } = parseTaskWithExtraInfo(trimmed)
+
       const existing = availableTasks.find(
-        (t) => t.task.toLowerCase() === trimmed.toLowerCase(),
+        (t) => t.task.toLowerCase() === taskName.toLowerCase(),
       )
       if (!existing) {
         alert('Create task first in the group above, then pin it here.')
         return
       }
-      await addTaskToPinGroup(pinGroupId, existing.id)
+
+      await addTaskToPinGroup(pinGroupId, existing.id, extraInfo || null)
       setAddingTaskInput((s) => ({ ...s, [pinGroupId]: '' }))
       await refresh()
     },
@@ -167,8 +171,8 @@ export default function PinnedTasks({
   )
 
   const handleRemoveTask = useCallback(
-    async (pinGroupId: number, taskId: number) => {
-      await removeTaskFromPinGroup(pinGroupId, taskId)
+    async (pinGroupId: number, pinId: number) => {
+      await removeTaskFromPinGroup(pinGroupId, pinId)
       await refresh()
     },
     [refresh],
@@ -190,23 +194,18 @@ export default function PinnedTasks({
     useEffect(() => {
       const el = ref.current
       if (!el) return
-      // Determine default extraInfo for this task for use in drag payload
-      const taskObj = availableTasks.find((t) => t.id === item.taskId)
       return combine(
         draggable({
           element: el,
           getInitialData: () => ({
             type: 'pin-item',
+            pinId: item.id,
             taskId: item.taskId,
             sortOrder: item.sortOrder,
             pinGroupId,
-            // Enrich drag data so drop targets can use defaults without extra lookups
+            // Use pin-specific extraInfo if available, otherwise fall back to task default
             task: item.task,
-            extraInfo:
-              taskObj?.defaultExtraInfo &&
-              taskObj.defaultExtraInfo.trim() !== ''
-                ? taskObj.defaultExtraInfo
-                : undefined,
+            extraInfo: item.extraInfo ?? undefined,
           }),
           onDragStart: () => setDragging(true),
           onDrop: () => setDragging(false),
@@ -216,21 +215,21 @@ export default function PinnedTasks({
           canDrop: ({ source }) =>
             source.data.type === 'pin-item' &&
             source.data.pinGroupId === pinGroupId &&
-            source.data.taskId !== item.taskId,
+            source.data.pinId !== item.id,
           onDragEnter: () => setOver(true),
           onDragLeave: () => setOver(false),
           onDrop: async ({ source }) => {
             setOver(false)
-            const sourceTaskId = source.data.taskId as number
-            if (sourceTaskId === item.taskId) return
+            const sourcePinId = source.data.pinId as number
+            if (sourcePinId === item.id) return
             const arr = [...items]
-            const sIdx = arr.findIndex((t) => t.taskId === sourceTaskId)
-            const tIdx = arr.findIndex((t) => t.taskId === item.taskId)
+            const sIdx = arr.findIndex((t) => t.id === sourcePinId)
+            const tIdx = arr.findIndex((t) => t.id === item.id)
             if (sIdx === -1 || tIdx === -1) return
             const [moved] = arr.splice(sIdx, 1)
             arr.splice(tIdx, 0, moved)
             const payload = arr.map((t, i) => ({
-              taskId: t.taskId,
+              pinId: t.id,
               sortOrder: i,
             }))
             await reorderPinGroupTasks(pinGroupId, payload)
@@ -240,9 +239,6 @@ export default function PinnedTasks({
       )
     }, [item, pinGroupId, items])
 
-    // Find the defaultExtraInfo for this task
-    const taskObj = availableTasks.find((t) => t.id === item.taskId)
-
     return (
       <div
         ref={ref}
@@ -250,8 +246,8 @@ export default function PinnedTasks({
       >
         <span className="pin-task-text">
           {item.task}
-          {taskObj?.defaultExtraInfo && taskObj.defaultExtraInfo.trim() !== ''
-            ? ` (${taskObj.defaultExtraInfo})`
+          {item.extraInfo && item.extraInfo.trim() !== ''
+            ? ` (${item.extraInfo})`
             : ''}
         </span>
         <CopyButton
@@ -265,7 +261,7 @@ export default function PinnedTasks({
                   taskId: item.taskId,
                   task: item.task,
                   sortOrder: item.sortOrder,
-                  extraInfo: taskObj?.defaultExtraInfo ?? null,
+                  extraInfo: item.extraInfo ?? null,
                 },
               ],
               null,
@@ -276,7 +272,7 @@ export default function PinnedTasks({
         <button
           className="pin-remove"
           type="button"
-          onClick={() => handleRemoveTask(pinGroupId, item.taskId)}
+          onClick={() => handleRemoveTask(pinGroupId, item.id)}
         >
           ×
         </button>
@@ -292,7 +288,6 @@ export default function PinnedTasks({
           key={pg.id}
           group={pg}
           index={idx}
-          defaultExtraInfoByTaskId={defaultExtraInfoByTaskId}
           onRename={handleRenamePinGroup}
           onDelete={handleDeletePinGroup}
           onReorder={async (from, to) => {
@@ -311,7 +306,7 @@ export default function PinnedTasks({
           <div className="pin-items">
             {pg.tasks.map((it) => (
               <DraggablePinItem
-                key={`${pg.id}-${it.taskId}`}
+                key={`${pg.id}-${it.id}`}
                 pinGroupId={pg.id}
                 item={it}
                 items={pg.tasks}
@@ -368,9 +363,7 @@ export default function PinnedTasks({
                   {isOpen &&
                     (addingTaskInput[pg.id] || '').trim() !== '' &&
                     availableTasks
-                      // Hide tasks already pinned in this group
-                      .filter((t) => !pg.tasks.some((pt) => pt.taskId === t.id))
-                      // Then filter by the query
+                      // Filter by the query
                       .filter((t) =>
                         t.task
                           .toLowerCase()
@@ -429,7 +422,6 @@ export default function PinnedTasks({
 function PinGroupRow({
   group,
   index,
-  defaultExtraInfoByTaskId,
   onRename,
   onDelete,
   onReorder,
@@ -437,7 +429,6 @@ function PinGroupRow({
 }: {
   group: PinGroup
   index: number
-  defaultExtraInfoByTaskId: Map<number, string | null>
   onRename: (pinGroupId: number, name: string) => Promise<void>
   onDelete: (pinGroupId: number) => Promise<void>
   onReorder: (fromIndex: number, toIndex: number) => Promise<void>
@@ -552,7 +543,7 @@ function PinGroupRow({
                   taskId: t.taskId,
                   task: t.task,
                   sortOrder: t.sortOrder,
-                  extraInfo: defaultExtraInfoByTaskId.get(t.taskId) ?? null,
+                  extraInfo: t.extraInfo ?? null,
                 })),
                 null,
                 2,

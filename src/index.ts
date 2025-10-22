@@ -1,6 +1,6 @@
 import { cors } from '@elysiajs/cors'
 import { staticPlugin } from '@elysiajs/static'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { type Context, Elysia, sse } from 'elysia'
 import { auth } from './auth'
 import { config } from './config'
@@ -520,8 +520,10 @@ const api = new Elysia({ prefix: '/api' })
                   .filter((pi) => pi.pin.groupId === pg.id)
                   .sort((a, b) => a.pin.sortOrder - b.pin.sortOrder)
                   .map((pi) => ({
+                    id: pi.pin.id,
                     taskId: pi.task.id,
                     task: pi.task.task,
+                    extraInfo: pi.pin.extraInfo,
                     sortOrder: pi.pin.sortOrder,
                   })),
               }))
@@ -2083,9 +2085,10 @@ const api = new Elysia({ prefix: '/api' })
             try {
               const { userId } = store as AuthedStore
               const pinGroupIdNum = parseInt(pinGroupId)
-              const { taskId, sortOrder } = body as {
+              const { taskId, sortOrder, extraInfo } = body as {
                 taskId: number
                 sortOrder?: number
+                extraInfo?: string
               }
 
               if (Number.isNaN(pinGroupIdNum))
@@ -2118,6 +2121,8 @@ const api = new Elysia({ prefix: '/api' })
               if (task.length === 0)
                 return status(404, { message: 'Task not found' })
 
+              // Check for duplicate (same taskId and extraInfo combination)
+              const normalizedExtraInfo = extraInfo?.trim() || null
               const existing = await db
                 .select()
                 .from(groupPinsTable)
@@ -2126,12 +2131,16 @@ const api = new Elysia({ prefix: '/api' })
                     eq(groupPinsTable.groupId, pinGroupIdNum),
                     eq(groupPinsTable.taskId, taskId),
                     eq(groupPinsTable.userId, userId),
+                    normalizedExtraInfo
+                      ? eq(groupPinsTable.extraInfo, normalizedExtraInfo)
+                      : sql`${groupPinsTable.extraInfo} IS NULL`,
                   ),
                 )
                 .limit(1)
               if (existing.length > 0)
                 return status(409, {
-                  message: 'Task already pinned in this group',
+                  message:
+                    'Task with this extra info already pinned in this group',
                 })
 
               let finalSortOrder = sortOrder
@@ -2157,6 +2166,7 @@ const api = new Elysia({ prefix: '/api' })
                   userId,
                   groupId: pinGroupIdNum,
                   taskId,
+                  extraInfo: normalizedExtraInfo,
                   sortOrder: finalSortOrder,
                 })
                 .returning()
@@ -2168,21 +2178,21 @@ const api = new Elysia({ prefix: '/api' })
           },
         )
         .delete(
-          '/pin-groups/:pinGroupId/tasks/:taskId',
-          async ({ params: { pinGroupId, taskId }, status, store }) => {
+          '/pin-groups/:pinGroupId/pins/:pinId',
+          async ({ params: { pinGroupId, pinId }, status, store }) => {
             try {
               const { userId } = store as AuthedStore
               const pinGroupIdNum = parseInt(pinGroupId)
-              const taskIdNum = parseInt(taskId)
-              if (Number.isNaN(pinGroupIdNum) || Number.isNaN(taskIdNum))
-                return status(400, { message: 'Invalid pin group or task ID' })
+              const pinIdNum = parseInt(pinId)
+              if (Number.isNaN(pinGroupIdNum) || Number.isNaN(pinIdNum))
+                return status(400, { message: 'Invalid pin group or pin ID' })
 
               const deleted = await db
                 .delete(groupPinsTable)
                 .where(
                   and(
+                    eq(groupPinsTable.id, pinIdNum),
                     eq(groupPinsTable.groupId, pinGroupIdNum),
-                    eq(groupPinsTable.taskId, taskIdNum),
                     eq(groupPinsTable.userId, userId),
                   ),
                 )
@@ -2207,7 +2217,7 @@ const api = new Elysia({ prefix: '/api' })
               const { userId } = store as AuthedStore
               const pinGroupIdNum = parseInt(pinGroupId)
               const { items } = body as {
-                items: { taskId: number; sortOrder: number }[]
+                items: { pinId: number; sortOrder: number }[]
               }
               if (Number.isNaN(pinGroupIdNum))
                 return status(400, { message: 'Invalid pin group ID' })
@@ -2220,8 +2230,8 @@ const api = new Elysia({ prefix: '/api' })
                   .set({ sortOrder: it.sortOrder })
                   .where(
                     and(
+                      eq(groupPinsTable.id, it.pinId),
                       eq(groupPinsTable.groupId, pinGroupIdNum),
-                      eq(groupPinsTable.taskId, it.taskId),
                       eq(groupPinsTable.userId, userId),
                     ),
                   )

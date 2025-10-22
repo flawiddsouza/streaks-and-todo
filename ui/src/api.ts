@@ -73,7 +73,13 @@ export interface ApiTaskGroupResponse {
     id: number
     name: string
     sortOrder: number
-    tasks: { taskId: number; task: string; sortOrder: number }[]
+    tasks: {
+      id: number
+      taskId: number
+      task: string
+      extraInfo?: string | null
+      sortOrder: number
+    }[]
   }[]
 }
 
@@ -125,7 +131,13 @@ export interface TaskGroup {
     id: number
     name: string
     sortOrder: number
-    tasks: { taskId: number; task: string; sortOrder: number }[]
+    tasks: {
+      id: number
+      taskId: number
+      task: string
+      extraInfo?: string | null
+      sortOrder: number
+    }[]
   }[]
 }
 
@@ -248,12 +260,13 @@ export const createPinGroup = async (
 export const addTaskToPinGroup = async (
   pinGroupId: number,
   taskId: number,
+  extraInfo?: string | null,
   sortOrder?: number,
 ): Promise<void> => {
   const response = await apiFetch(`/pin-groups/${pinGroupId}/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ taskId, sortOrder }),
+    body: JSON.stringify({ taskId, extraInfo, sortOrder }),
   })
   if (!response.ok) {
     let message = 'Failed to add task to pin group'
@@ -268,9 +281,9 @@ export const addTaskToPinGroup = async (
 
 export const removeTaskFromPinGroup = async (
   pinGroupId: number,
-  taskId: number,
+  pinId: number,
 ): Promise<void> => {
-  const response = await apiFetch(`/pin-groups/${pinGroupId}/tasks/${taskId}`, {
+  const response = await apiFetch(`/pin-groups/${pinGroupId}/pins/${pinId}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -286,7 +299,7 @@ export const removeTaskFromPinGroup = async (
 
 export const reorderPinGroupTasks = async (
   pinGroupId: number,
-  items: { taskId: number; sortOrder: number }[],
+  items: { pinId: number; sortOrder: number }[],
 ): Promise<void> => {
   const response = await apiFetch(`/pin-groups/${pinGroupId}/tasks/reorder`, {
     method: 'PUT',

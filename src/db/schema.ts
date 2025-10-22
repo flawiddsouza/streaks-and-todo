@@ -123,6 +123,7 @@ export const groupPinsTable = pgTable('group_pins', {
   taskId: integer('task_id')
     .references(() => tasksTable.id)
     .notNull(),
+  extraInfo: text('extra_info'),
   sortOrder: integer('sort_order').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
