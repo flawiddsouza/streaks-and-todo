@@ -1231,6 +1231,91 @@ export default function TodoGroupTable({
     [handleTaskCreationAndAddition, addTaskToCell],
   )
 
+  const addTaskByNameOrCreate = useCallback(
+    async (
+      taskText: string,
+      date: string,
+      done: boolean,
+      availableTasks: FlatTask[],
+    ) => {
+      const { task: taskName, extraInfo } = parseTaskWithExtraInfo(taskText)
+      const existingTask = availableTasks.find(
+        (t) => t.task.toLowerCase() === taskName.toLowerCase(),
+      )
+
+      if (existingTask) {
+        await addTaskToCell(
+          existingTask.id,
+          date,
+          done,
+          extraInfo || existingTask.defaultExtraInfo || undefined,
+        )
+      } else {
+        await handleTaskCreationAndAddition(taskText, date, done, () => {})
+      }
+    },
+    [addTaskToCell, handleTaskCreationAndAddition],
+  )
+
+  // Helper function to process tasks from JSON or plain text
+  const processTaskInput = useCallback(
+    async (
+      inputText: string,
+      date: string,
+      done: boolean,
+      availableTasks: FlatTask[],
+    ) => {
+      // Try parsing as JSON first
+      try {
+        const parsed = JSON.parse(inputText)
+        if (Array.isArray(parsed)) {
+          // Handle JSON array format
+          const idByName = new Map(
+            availableTasks.map((t) => [t.task.toLowerCase(), t.id]),
+          )
+
+          for (const raw of parsed) {
+            if (!raw || typeof raw !== 'object') continue
+            const obj = raw as Record<string, unknown>
+            let id: number | undefined
+
+            if (typeof obj.taskId === 'number') {
+              id = obj.taskId
+            } else if (
+              typeof obj.task === 'string' &&
+              idByName.has(obj.task.toLowerCase())
+            ) {
+              id = idByName.get(obj.task.toLowerCase())
+            }
+
+            if (id) {
+              const extraInfo =
+                typeof obj.extraInfo === 'string' ? obj.extraInfo : undefined
+              const logId =
+                typeof obj.logId === 'number' ? obj.logId : undefined
+              await addTaskToCell(id, date, done, extraInfo, logId)
+            }
+          }
+          return true // Processed as JSON
+        }
+      } catch {
+        // Not JSON, continue with plain text processing
+      }
+
+      // Handle plain text (multi-line or single line)
+      const lines = inputText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+
+      for (const line of lines) {
+        await addTaskByNameOrCreate(line, date, done, availableTasks)
+      }
+      return false // Processed as plain text
+    },
+    [addTaskToCell, addTaskByNameOrCreate],
+  )
+
   const handleKeyDown = useCallback(
     async (
       e: React.KeyboardEvent<HTMLInputElement>,
@@ -1242,33 +1327,46 @@ export default function TodoGroupTable({
     ) => {
       if (e.key === 'Enter') {
         const trimmedValue = inputValue.trim()
-        if (trimmedValue) {
-          const { task: taskName, extraInfo } =
-            parseTaskWithExtraInfo(trimmedValue)
-          const existingTask = availableTasks.find((t) => t.task === taskName)
+        if (!trimmedValue) return
 
-          if (existingTask) {
-            // Add existing task with custom extra info (if provided) or default extra info
-            await addTaskToCell(
-              existingTask.id,
-              date,
-              done,
-              extraInfo || existingTask.defaultExtraInfo || undefined,
-            )
+        // Try parsing as JSON first (new feature for pasted task data)
+        try {
+          const parsed = JSON.parse(trimmedValue)
+          if (Array.isArray(parsed)) {
+            await processTaskInput(trimmedValue, date, done, availableTasks)
             setInputValue('')
-          } else {
-            // Create new task
-            await handleTaskCreationAndAddition(
-              trimmedValue,
-              date,
-              done,
-              setInputValue,
-            )
+            return
           }
+        } catch {
+          // Not JSON, continue with normal processing
+        }
+
+        // Normal task processing (original behavior preserved)
+        const { task: taskName, extraInfo } =
+          parseTaskWithExtraInfo(trimmedValue)
+        const existingTask = availableTasks.find((t) => t.task === taskName)
+
+        if (existingTask) {
+          // Add existing task with custom extra info (if provided) or default extra info
+          await addTaskToCell(
+            existingTask.id,
+            date,
+            done,
+            extraInfo || existingTask.defaultExtraInfo || undefined,
+          )
+          setInputValue('')
+        } else {
+          // Create new task
+          await handleTaskCreationAndAddition(
+            trimmedValue,
+            date,
+            done,
+            setInputValue,
+          )
         }
       }
     },
-    [handleTaskCreationAndAddition, addTaskToCell],
+    [processTaskInput, handleTaskCreationAndAddition, addTaskToCell],
   )
 
   const currentDate = dayjs().format('YYYY-MM-DD')
@@ -1440,32 +1538,6 @@ export default function TodoGroupTable({
     [groupId, onTaskDataChange, dateRows],
   )
 
-  const addTaskByNameOrCreate = useCallback(
-    async (
-      taskText: string,
-      date: string,
-      done: boolean,
-      availableTasks: FlatTask[],
-    ) => {
-      const { task: taskName, extraInfo } = parseTaskWithExtraInfo(taskText)
-      const existingTask = availableTasks.find(
-        (t) => t.task.toLowerCase() === taskName.toLowerCase(),
-      )
-
-      if (existingTask) {
-        await addTaskToCell(
-          existingTask.id,
-          date,
-          done,
-          extraInfo || existingTask.defaultExtraInfo || undefined,
-        )
-      } else {
-        await handleTaskCreationAndAddition(taskText, date, done, () => {})
-      }
-    },
-    [addTaskToCell, handleTaskCreationAndAddition],
-  )
-
   const handlePastePinned = useCallback(
     async (date: string, done: boolean, availableTasksForCell: FlatTask[]) => {
       try {
@@ -1482,59 +1554,14 @@ export default function TodoGroupTable({
         const dateRow = dateRows.find((row) => row.date === date)
         if (!dateRow) return
 
-        // Try parsing as JSON first
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(text)
-          if (!Array.isArray(parsed)) {
-            alert('Expected an array of pinned tasks')
-            return
-          }
-
-          // Handle JSON format (existing behavior)
-          const idByName = new Map(
-            availableTasksForCell.map((t) => [t.task.toLowerCase(), t.id]),
-          )
-
-          for (const raw of parsed) {
-            if (!raw || typeof raw !== 'object') continue
-            const obj = raw as Record<string, unknown>
-            let id: number | undefined
-
-            if (typeof obj.taskId === 'number') {
-              id = obj.taskId
-            } else if (
-              typeof obj.task === 'string' &&
-              idByName.has(obj.task.toLowerCase())
-            ) {
-              id = idByName.get(obj.task.toLowerCase())
-            }
-
-            if (id) {
-              const extraInfo =
-                typeof obj.extraInfo === 'string' ? obj.extraInfo : undefined
-              const logId =
-                typeof obj.logId === 'number' ? obj.logId : undefined
-              await addTaskToCell(id, date, done, extraInfo, logId)
-            }
-          }
-        } catch {
-          // Not JSON, treat as plain text
-          const lines = text
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-
-          for (const line of lines) {
-            await addTaskByNameOrCreate(line, date, done, availableTasksForCell)
-          }
-        }
+        // Use the shared helper function for processing
+        await processTaskInput(text, date, done, availableTasksForCell)
       } catch (err) {
         console.error('Error pasting tasks:', err)
         alert('Failed to paste tasks')
       }
     },
-    [addTaskToCell, dateRows, addTaskByNameOrCreate],
+    [dateRows, processTaskInput],
   )
 
   // Handle dropping a pinned task into a cell list. If dropped relative to a specific
