@@ -1440,6 +1440,32 @@ export default function TodoGroupTable({
     [groupId, onTaskDataChange, dateRows],
   )
 
+  const addTaskByNameOrCreate = useCallback(
+    async (
+      taskText: string,
+      date: string,
+      done: boolean,
+      availableTasks: FlatTask[],
+    ) => {
+      const { task: taskName, extraInfo } = parseTaskWithExtraInfo(taskText)
+      const existingTask = availableTasks.find(
+        (t) => t.task.toLowerCase() === taskName.toLowerCase(),
+      )
+
+      if (existingTask) {
+        await addTaskToCell(
+          existingTask.id,
+          date,
+          done,
+          extraInfo || existingTask.defaultExtraInfo || undefined,
+        )
+      } else {
+        await handleTaskCreationAndAddition(taskText, date, done, () => {})
+      }
+    },
+    [addTaskToCell, handleTaskCreationAndAddition],
+  )
+
   const handlePastePinned = useCallback(
     async (date: string, done: boolean, availableTasksForCell: FlatTask[]) => {
       try {
@@ -1448,58 +1474,67 @@ export default function TodoGroupTable({
           return
         }
         const text = await navigator.clipboard.readText()
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(text)
-        } catch {
-          alert('Clipboard does not contain valid JSON')
-          return
-        }
-        if (!Array.isArray(parsed)) {
-          alert('Expected an array of pinned tasks')
+        if (!text.trim()) {
+          alert('No text found in clipboard')
           return
         }
 
         const dateRow = dateRows.find((row) => row.date === date)
         if (!dateRow) return
 
-        // Accept objects that have taskId (preferred) or task name fallback
-        const idByName = new Map(
-          availableTasksForCell.map((t) => [t.task.toLowerCase(), t.id]),
-        )
-
-        // Preserve order from clipboard as provided
-        for (const raw of parsed as unknown[]) {
-          if (!raw || typeof raw !== 'object') continue
-          const obj = raw as Record<string, unknown>
-          let id: number | undefined
-          const taskIdVal = obj.taskId
-          const taskNameVal = obj.task
-          const extraInfoVal = obj.extraInfo
-          const logIdVal = obj.logId
-
-          if (typeof taskIdVal === 'number') {
-            id = taskIdVal
-          } else if (
-            typeof taskNameVal === 'string' &&
-            idByName.has(taskNameVal.toLowerCase())
-          ) {
-            id = idByName.get(taskNameVal.toLowerCase())
+        // Try parsing as JSON first
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(text)
+          if (!Array.isArray(parsed)) {
+            alert('Expected an array of pinned tasks')
+            return
           }
 
-          if (id) {
-            const extraInfo =
-              typeof extraInfoVal === 'string' ? extraInfoVal : undefined
-            const logId = typeof logIdVal === 'number' ? logIdVal : undefined
-            await addTaskToCell(id, date, done, extraInfo, logId)
+          // Handle JSON format (existing behavior)
+          const idByName = new Map(
+            availableTasksForCell.map((t) => [t.task.toLowerCase(), t.id]),
+          )
+
+          for (const raw of parsed) {
+            if (!raw || typeof raw !== 'object') continue
+            const obj = raw as Record<string, unknown>
+            let id: number | undefined
+
+            if (typeof obj.taskId === 'number') {
+              id = obj.taskId
+            } else if (
+              typeof obj.task === 'string' &&
+              idByName.has(obj.task.toLowerCase())
+            ) {
+              id = idByName.get(obj.task.toLowerCase())
+            }
+
+            if (id) {
+              const extraInfo =
+                typeof obj.extraInfo === 'string' ? obj.extraInfo : undefined
+              const logId =
+                typeof obj.logId === 'number' ? obj.logId : undefined
+              await addTaskToCell(id, date, done, extraInfo, logId)
+            }
+          }
+        } catch {
+          // Not JSON, treat as plain text
+          const lines = text
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+
+          for (const line of lines) {
+            await addTaskByNameOrCreate(line, date, done, availableTasksForCell)
           }
         }
       } catch (err) {
-        console.error('Error pasting pinned tasks:', err)
-        alert('Failed to paste pinned tasks')
+        console.error('Error pasting tasks:', err)
+        alert('Failed to paste tasks')
       }
     },
-    [addTaskToCell, dateRows],
+    [addTaskToCell, dateRows, addTaskByNameOrCreate],
   )
 
   // Handle dropping a pinned task into a cell list. If dropped relative to a specific
