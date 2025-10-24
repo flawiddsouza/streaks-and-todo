@@ -62,6 +62,7 @@ import {
 import './PinnedTasks.css'
 import confirmAsync from './confirmAsync'
 import { parseTaskWithExtraInfo } from './TodoGroupTable'
+import { formatTaskWithExtraInfo } from '../helpers'
 
 type PinTask = {
   id: number
@@ -245,10 +246,7 @@ export default function PinnedTasks({
         className={`pin-task ${dragging ? 'dragging' : ''} ${over ? 'drag-over' : ''}`}
       >
         <span className="pin-task-text">
-          {item.task}
-          {item.extraInfo && item.extraInfo.trim() !== ''
-            ? ` (${item.extraInfo})`
-            : ''}
+          {formatTaskWithExtraInfo(item.task, item.extraInfo || undefined).text}
         </span>
         <CopyButton
           className="pin-group-btn"
