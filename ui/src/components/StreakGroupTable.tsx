@@ -2,6 +2,7 @@ import dayjs from 'dayjs'
 import {
   type Dispatch,
   type SetStateAction,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -17,6 +18,8 @@ import {
 } from '../api'
 import confirmAsync from './confirmAsync'
 import './StreakGroupTable.css'
+import { useMobileStreakInteraction } from '../hooks/useMobileStreakInteraction'
+import MobileStreakActionModal from './MobileStreakActionModal'
 import Modal from './Modal'
 
 interface StreakGroupTableProps {
@@ -126,8 +129,6 @@ export default function StreakGroupTable({
   error,
   onStreakDataChange,
 }: StreakGroupTableProps) {
-  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const longPressTriggeredRef = useRef(false)
   const [blockInfo, setBlockInfo] = useState<
     | {
         isOpen: true
@@ -224,10 +225,13 @@ export default function StreakGroupTable({
     return lookup
   }, [streakData])
 
-  const toggleStreakRecord = async (streakName: string, date: string) => {
+  const toggleStreakRecord = async (
+    streakName: string,
+    date: string,
+  ): Promise<boolean | undefined> => {
     const streakLocation = streakLookup.get(streakName)
     const dateRow = dateRows.find((row) => row.date === date)
-    if (!streakLocation || !dateRow) return
+    if (!streakLocation || !dateRow) return undefined
 
     const { groupIndex, streakIndex, streakId } = streakLocation
 
@@ -244,7 +248,7 @@ export default function StreakGroupTable({
         message:
           "This streak was marked done by the following task(s) and can't be removed here. Undo/remove the task to remove this streak entry.",
       })
-      return
+      return undefined
     }
 
     const today = dayjs().format('YYYY-MM-DD')
@@ -256,7 +260,7 @@ export default function StreakGroupTable({
         cancelLabel: 'Cancel',
         maxWidth: '480px',
       })
-      if (!ok) return
+      if (!ok) return undefined
     }
 
     try {
@@ -298,6 +302,7 @@ export default function StreakGroupTable({
 
         return newData
       })
+      return updatedLog.done
     } catch (error: unknown) {
       console.error('Error toggling streak record:', error)
       // If server blocked due to linked tasks, show modal with details
@@ -328,6 +333,7 @@ export default function StreakGroupTable({
           message,
         })
       }
+      return undefined
     }
   }
 
@@ -374,6 +380,38 @@ export default function StreakGroupTable({
     }
   }
 
+  const getRecordForCell = useCallback(
+    (streakName: string, date: string) => {
+      const dateRow = dateRows.find((row) => row.date === date)
+      return dateRow?.records.get(streakName)
+    },
+    [dateRows],
+  )
+
+  const {
+    modalState: mobileModalState,
+    noteDraft: mobileNoteDraft,
+    setNoteDraft: setMobileNoteDraft,
+    modalError: mobileModalError,
+    modalSaving: mobileModalSaving,
+    handleConfirm: handleMobileModalConfirm,
+    handleRemove: handleMobileModalRemove,
+    closeModal: closeMobileModal,
+    handleTouchStart: handleStreakCellTouchStart,
+    handleTouchMove: handleStreakCellTouchMove,
+    handleTouchEnd: handleStreakCellTouchEnd,
+    handleTouchCancel: handleStreakCellTouchCancel,
+    consumeClickSuppression,
+  } = useMobileStreakInteraction({
+    getRecord: (streakName, date) => {
+      const record = getRecordForCell(streakName, date)
+      if (!record) return undefined
+      return { done: record.done ?? false, note: record.note }
+    },
+    toggleStreakRecord,
+    updateNoteContent,
+  })
+
   const handleNoteAction = (streakName: string, date: string) => {
     const dateRow = dateRows.find((row) => row.date === date)
     if (!dateRow) return
@@ -418,21 +456,6 @@ export default function StreakGroupTable({
     }
   }
 
-  const handleStreakCellMouseDown = (streakName: string, date: string) => {
-    longPressTriggeredRef.current = false
-    longPressTimeoutRef.current = setTimeout(() => {
-      longPressTriggeredRef.current = true
-      handleNoteAction(streakName, date)
-    }, 500)
-  }
-
-  const handleStreakCellMouseUp = () => {
-    if (longPressTimeoutRef.current) {
-      clearTimeout(longPressTimeoutRef.current)
-      longPressTimeoutRef.current = null
-    }
-  }
-
   const handleStreakCellKeyDown = (
     event: React.KeyboardEvent,
     streakName: string,
@@ -453,15 +476,7 @@ export default function StreakGroupTable({
     streakName: string,
     date: string,
   ) => {
-    // Clear any existing long press timeout
-    if (longPressTimeoutRef.current) {
-      clearTimeout(longPressTimeoutRef.current)
-      longPressTimeoutRef.current = null
-    }
-
-    // Don't process click if long press was triggered
-    if (longPressTriggeredRef.current) {
-      longPressTriggeredRef.current = false
+    if (consumeClickSuppression()) {
       return
     }
 
@@ -664,15 +679,18 @@ export default function StreakGroupTable({
                     onKeyDown={(event) =>
                       handleStreakCellKeyDown(event, streak.name, dateRow.date)
                     }
-                    onMouseDown={() =>
-                      handleStreakCellMouseDown(streak.name, dateRow.date)
+                    onTouchStart={(event) =>
+                      handleStreakCellTouchStart(
+                        event,
+                        streak.name,
+                        dateRow.date,
+                      )
                     }
-                    onMouseUp={handleStreakCellMouseUp}
-                    onMouseLeave={handleStreakCellMouseUp}
-                    onTouchStart={() =>
-                      handleStreakCellMouseDown(streak.name, dateRow.date)
+                    onTouchMove={handleStreakCellTouchMove}
+                    onTouchEnd={(event) =>
+                      handleStreakCellTouchEnd(event, streak.name, dateRow.date)
                     }
-                    onTouchEnd={handleStreakCellMouseUp}
+                    onTouchCancel={handleStreakCellTouchCancel}
                     style={{ cursor: 'pointer' }}
                   >
                     {done ? 'x' : ''}
@@ -735,6 +753,16 @@ export default function StreakGroupTable({
             </>
           )
         }}
+      />
+      <MobileStreakActionModal
+        state={mobileModalState}
+        noteDraft={mobileNoteDraft}
+        setNoteDraft={setMobileNoteDraft}
+        error={mobileModalError}
+        saving={mobileModalSaving}
+        onClose={closeMobileModal}
+        onConfirm={handleMobileModalConfirm}
+        onRemove={handleMobileModalRemove}
       />
       {renameModal.isOpen && (
         <Modal
