@@ -228,6 +228,7 @@ export default function StreakGroupTable({
   const toggleStreakRecord = async (
     streakName: string,
     date: string,
+    options?: { skipAddConfirm?: boolean },
   ): Promise<boolean | undefined> => {
     const streakLocation = streakLookup.get(streakName)
     const dateRow = dateRows.find((row) => row.date === date)
@@ -251,11 +252,29 @@ export default function StreakGroupTable({
       return undefined
     }
 
-    const today = dayjs().format('YYYY-MM-DD')
-    if (isDone && date !== today) {
+    const today = dayjs().startOf('day')
+    const todayString = today.format('YYYY-MM-DD')
+    const targetDate = dayjs(date)
+
+    if (
+      !isDone &&
+      targetDate.isBefore(today, 'day') &&
+      options?.skipAddConfirm !== true
+    ) {
+      const ok = await confirmAsync({
+        title: 'Confirm add',
+        message: `Mark this streak as done on ${targetDate.format('DD-MMM-YY')}?`,
+        confirmLabel: 'Add mark',
+        cancelLabel: 'Cancel',
+        maxWidth: '480px',
+      })
+      if (!ok) return undefined
+    }
+
+    if (isDone && date !== todayString) {
       const ok = await confirmAsync({
         title: 'Confirm delete',
-        message: `Remove this streak mark from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`,
+        message: `Remove this streak mark from ${targetDate.format('DD-MMM-YY')}? This will delete the record for that day.`,
         confirmLabel: 'Delete',
         cancelLabel: 'Cancel',
         maxWidth: '480px',

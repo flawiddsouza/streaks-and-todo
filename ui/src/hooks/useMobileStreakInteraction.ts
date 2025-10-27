@@ -19,6 +19,7 @@ interface UseMobileStreakInteractionArgs {
   toggleStreakRecord: (
     streakName: string,
     date: string,
+    options?: { skipAddConfirm?: boolean },
   ) => Promise<boolean | undefined>
   updateNoteContent: (
     streakName: string,
@@ -175,7 +176,9 @@ export function useMobileStreakInteraction({
       const { streakName, date, done, note } = modalState
 
       if (!done) {
-        const newStatus = await toggleStreakRecord(streakName, date)
+        const newStatus = await toggleStreakRecord(streakName, date, {
+          skipAddConfirm: true,
+        })
         if (newStatus !== true) {
           setModalError(
             'Unable to mark this streak as done. Check any linked tasks.',
@@ -218,6 +221,7 @@ export function useMobileStreakInteraction({
       const newStatus = await toggleStreakRecord(
         modalState.streakName,
         modalState.date,
+        { skipAddConfirm: true },
       )
       if (newStatus !== false) {
         setModalError('Unable to remove this streak mark.')
