@@ -3,6 +3,7 @@ import {
   draggable,
   dropTargetForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
+import { autoScrollForElements } from '@atlaskit/pragmatic-drag-and-drop-auto-scroll/element'
 import dayjs from 'dayjs'
 import Downshift, { type StateChangeOptions } from 'downshift'
 import {
@@ -472,33 +473,40 @@ function KanbanColumn({
     const element = columnRef.current
     if (!element) return
 
-    return dropTargetForElements({
-      element,
-      canDrop: ({ source }) => {
-        if (source.data.type !== 'kanban-card') return false
-        const sourceStatus = source.data.currentStatus as string
-        const targetStatus = isDoneColumn ? 'done' : 'todo'
-        // Only allow drops from the opposite column
-        return sourceStatus !== targetStatus
-      },
-      onDragEnter: () => setIsDropTarget(true),
-      onDragLeave: () => setIsDropTarget(false),
-      onDrop: ({ source }) => {
-        setIsDropTarget(false)
-        const cardId = source.data.cardId as number
-        // Find the card from the source data
-        const cardToToggle = {
-          id: cardId,
-          taskId: source.data.taskId as number,
-          taskName: source.data.taskName as string,
-          extraInfo: source.data.extraInfo as string | undefined,
-          date: source.data.date as string,
-          done: source.data.currentStatus === 'done',
-          sortOrder: 0,
-        }
-        onCardStatusToggle(cardToToggle)
-      },
-    })
+    return combine(
+      // Enable auto-scrolling for the column
+      autoScrollForElements({
+        element,
+      }),
+      // Enable drop target for column status change
+      dropTargetForElements({
+        element,
+        canDrop: ({ source }) => {
+          if (source.data.type !== 'kanban-card') return false
+          const sourceStatus = source.data.currentStatus as string
+          const targetStatus = isDoneColumn ? 'done' : 'todo'
+          // Only allow drops from the opposite column
+          return sourceStatus !== targetStatus
+        },
+        onDragEnter: () => setIsDropTarget(true),
+        onDragLeave: () => setIsDropTarget(false),
+        onDrop: ({ source }) => {
+          setIsDropTarget(false)
+          const cardId = source.data.cardId as number
+          // Find the card from the source data
+          const cardToToggle = {
+            id: cardId,
+            taskId: source.data.taskId as number,
+            taskName: source.data.taskName as string,
+            extraInfo: source.data.extraInfo as string | undefined,
+            date: source.data.date as string,
+            done: source.data.currentStatus === 'done',
+            sortOrder: 0,
+          }
+          onCardStatusToggle(cardToToggle)
+        },
+      }),
+    )
   }, [isDoneColumn, onCardStatusToggle])
 
   const [customDate, setCustomDate] = useState('')
