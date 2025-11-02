@@ -17,7 +17,6 @@ import {
 import { createPortal } from 'react-dom'
 import { TableVirtuoso, type TableVirtuosoHandle } from 'react-virtuoso'
 import {
-  createTaskAndLog,
   deleteTaskLogById,
   fetchGroupTasks,
   moveTaskLog,
@@ -29,6 +28,10 @@ import {
 import confirmAsync from './confirmAsync'
 import './TodoGroupTable.css'
 import { formatTaskWithExtraInfo } from '../helpers'
+import {
+  createTaskAndAddToGroup,
+  parseTaskWithExtraInfo,
+} from '../utils/task-utils'
 
 interface TodoGroupTableProps {
   taskData: TaskGroup[]
@@ -116,63 +119,6 @@ const buildTaskLookup = (taskData: TaskGroup[]) => {
     })
   })
   return lookup
-}
-
-// getOrCreateTask helper removed; new flow uses createTaskAndLog in one call
-
-export const parseTaskWithExtraInfo = (
-  taskText: string,
-): { task: string; extraInfo?: string } => {
-  const trimmed = taskText.trim()
-  if (!trimmed.includes('(')) {
-    return { task: trimmed }
-  }
-
-  let depth = 0
-  let closingIndex = -1
-
-  for (let idx = trimmed.length - 1; idx >= 0; idx -= 1) {
-    const char = trimmed[idx]
-    if (char === ')') {
-      if (closingIndex === -1) {
-        closingIndex = idx
-      }
-      depth += 1
-      continue
-    }
-
-    if (char === '(' && closingIndex !== -1) {
-      depth -= 1
-      if (depth === 0) {
-        const task = trimmed.slice(0, idx).trim()
-        const extraInfo = trimmed.slice(idx + 1, closingIndex).trim()
-
-        if (task) {
-          if (extraInfo) {
-            return { task, extraInfo }
-          }
-          return { task }
-        }
-      }
-    }
-  }
-
-  if (trimmed.indexOf(')') === -1) {
-    const openIndex = trimmed.lastIndexOf('(')
-    if (openIndex >= 0) {
-      const task = trimmed.slice(0, openIndex).trim()
-      const extraInfo = trimmed.slice(openIndex + 1).trim()
-
-      if (task) {
-        if (extraInfo) {
-          return { task, extraInfo }
-        }
-        return { task }
-      }
-    }
-  }
-
-  return { task: trimmed }
 }
 
 interface DropZoneProps {
@@ -1123,75 +1069,18 @@ export default function TodoGroupTable({
       done: boolean,
       setInputValue: (value: string) => void,
     ) => {
-      if (!groupId || !inputValue.trim()) return
-
+      if (!groupId) return
       try {
-        const { task: taskName, extraInfo } = parseTaskWithExtraInfo(
-          inputValue.trim(),
-        )
-
-        const { task, log } = await createTaskAndLog(
+        await createTaskAndAddToGroup(
           groupId,
-          taskName,
+          inputValue,
           date,
           done,
-          { defaultExtraInfo: extraInfo || null, extraInfo: extraInfo || null },
+          onTaskDataChange,
         )
-
-        // Merge into local state without full refetch
-        onTaskDataChange((prev) => {
-          const copy = [...prev]
-          if (!copy[0]) return copy
-          const group = { ...copy[0] }
-          const existingIdx = group.tasks.findIndex((t) => t.id === task.id)
-          if (existingIdx >= 0) {
-            const t = { ...group.tasks[existingIdx] }
-            const recs = [...t.records]
-            const idx = recs.findIndex((r) => r.id === log.id)
-            if (idx >= 0) {
-              recs[idx] = {
-                ...recs[idx],
-                done: log.done,
-                extraInfo: log.extraInfo || undefined,
-                sortOrder: log.sortOrder,
-              }
-            } else {
-              recs.push({
-                id: log.id,
-                date: log.date,
-                done: log.done,
-                extraInfo: log.extraInfo || undefined,
-                sortOrder: log.sortOrder,
-              })
-            }
-            t.records = recs
-            group.tasks[existingIdx] = t
-          } else {
-            group.tasks = [
-              ...group.tasks,
-              {
-                id: task.id,
-                task: task.task,
-                defaultExtraInfo: task.defaultExtraInfo,
-                records: [
-                  {
-                    id: log.id,
-                    date: log.date,
-                    done: log.done,
-                    extraInfo: log.extraInfo || undefined,
-                    sortOrder: log.sortOrder,
-                  },
-                ],
-              },
-            ]
-          }
-          copy[0] = group
-          return copy
-        })
-
         setInputValue('')
       } catch (err) {
-        alert(`Failed to create task: ${(err as Error).message}`)
+        alert((err as Error).message)
       }
     },
     [groupId, onTaskDataChange],

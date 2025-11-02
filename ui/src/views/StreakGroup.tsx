@@ -29,7 +29,7 @@ export default function Group() {
     event: React.FormEvent<HTMLHeadingElement>,
   ) => {
     const newName = event.currentTarget.textContent || ''
-    await updateGroup(parseInt(groupId || '0'), newName)
+    await updateGroup(parseInt(groupId || '0'), { name: newName })
   }
 
   const handleTitleKeyDown = (

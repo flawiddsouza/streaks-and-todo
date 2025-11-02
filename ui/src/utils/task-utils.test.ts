@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTaskWithExtraInfo } from './TodoGroupTable'
+import { parseTaskWithExtraInfo } from '../utils/task-utils'
 
 describe('parseTaskWithExtraInfo', () => {
   it('returns trimmed task when no outer parentheses are present', () => {

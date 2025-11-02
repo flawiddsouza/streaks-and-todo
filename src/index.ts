@@ -16,6 +16,11 @@ import {
   tasksTable,
 } from './db/schema'
 
+// View mode helpers: 0 = table, 1 = kanban
+const toViewModeString = (mode: number | null | undefined) =>
+  mode === 1 ? 'kanban' : mode === 0 ? 'table' : undefined
+const toViewModeNumber = (mode: string) => (mode === 'kanban' ? 1 : 0)
+
 // Authentication: each route validates session and derives userId (no global mutable store usage).
 
 // Small shared helpers to reduce repetition
@@ -529,7 +534,10 @@ const api = new Elysia({ prefix: '/api' })
               }))
 
               return {
-                group: group[0],
+                group: {
+                  ...group[0],
+                  viewMode: toViewModeString(group[0].viewMode),
+                },
                 tasks: tasks.map((task) => ({
                   ...task,
                   logs: taskLogs.filter((log) => log.taskId === task.id),
@@ -566,7 +574,12 @@ const api = new Elysia({ prefix: '/api' })
               )
               .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
 
-            return { groups }
+            return {
+              groups: groups.map((g) => ({
+                ...g,
+                viewMode: toViewModeString(g.viewMode),
+              })),
+            }
           } catch (err) {
             console.error('Error fetching groups:', err)
             return status(500, { message: 'Internal server error' })
@@ -1187,39 +1200,63 @@ const api = new Elysia({ prefix: '/api' })
             try {
               const { userId } = store as AuthedStore
               const groupIdNum = parseInt(groupId)
-              const { name } = body as { name: string }
+              const { name, viewMode } = body as {
+                name?: string
+                viewMode?: 'table' | 'kanban'
+              }
 
               if (Number.isNaN(groupIdNum)) {
                 return status(400, { message: 'Invalid group ID' })
               }
 
-              if (!name || name.trim().length === 0) {
-                return status(400, { message: 'Group name is required' })
+              // Build the update object with only provided fields
+              const updateData: {
+                name?: string
+                viewMode?: number | null
+              } = {}
+
+              if (name !== undefined) {
+                if (!name || name.trim().length === 0) {
+                  return status(400, { message: 'Group name is required' })
+                }
+
+                const existingGroup = await db
+                  .select()
+                  .from(groupsTable)
+                  .where(
+                    and(
+                      eq(groupsTable.name, name.trim()),
+                      eq(groupsTable.userId, userId),
+                    ),
+                  )
+                  .limit(1)
+
+                if (
+                  existingGroup.length > 0 &&
+                  existingGroup[0].id !== groupIdNum
+                ) {
+                  return status(409, {
+                    message: 'Group with this name already exists',
+                  })
+                }
+
+                updateData.name = name.trim()
               }
 
-              const existingGroup = await db
-                .select()
-                .from(groupsTable)
-                .where(
-                  and(
-                    eq(groupsTable.name, name.trim()),
-                    eq(groupsTable.userId, userId),
-                  ),
-                )
-                .limit(1)
+              if (viewMode !== undefined) {
+                updateData.viewMode = toViewModeNumber(viewMode)
+              }
 
-              if (
-                existingGroup.length > 0 &&
-                existingGroup[0].id !== groupIdNum
-              ) {
-                return status(409, {
-                  message: 'Group with this name already exists',
+              // Only update if there's something to update
+              if (Object.keys(updateData).length === 0) {
+                return status(400, {
+                  message: 'No fields to update',
                 })
               }
 
               const [updatedGroup] = await db
                 .update(groupsTable)
-                .set({ name: name.trim() })
+                .set(updateData)
                 .where(
                   and(
                     eq(groupsTable.id, groupIdNum),
@@ -1236,7 +1273,12 @@ const api = new Elysia({ prefix: '/api' })
                 type: 'group.meta.updated',
                 groupId: groupIdNum,
               })
-              return { group: updatedGroup }
+              return {
+                group: {
+                  ...updatedGroup,
+                  viewMode: toViewModeString(updatedGroup.viewMode),
+                },
+              }
             } catch (err) {
               console.error('Error updating group:', err)
               return status(500, { message: 'Internal server error' })

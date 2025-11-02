@@ -5,6 +5,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  smallint,
   text,
   timestamp,
   varchar,
@@ -47,6 +48,7 @@ export const groupsTable = pgTable('groups', {
   name: varchar({ length: 255 }).notNull(),
   type: groupTypeEnum().notNull(),
   sortOrder: integer('sort_order').notNull(),
+  viewMode: smallint('view_mode'), // 0 = table, 1 = kanban
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

@@ -9,6 +9,7 @@ import {
 import ManageTasksModal from '../components/ManageTasksModal'
 import PinnedTasks from '../components/PinnedTasks'
 import TodoGroupTable from '../components/TodoGroupTable'
+import TodoKanbanView from '../components/TodoKanbanView'
 import { type AppEvent, onEvent } from '../events'
 
 export default function TodoGroup() {
@@ -19,13 +20,27 @@ export default function TodoGroup() {
   const [showManageTasks, setShowManageTasks] = useState(false)
   const [filterQuery, setFilterQuery] = useState('')
   const [filteredCount, setFilteredCount] = useState(0)
+  const [viewMode, setViewMode] = useState<'table' | 'kanban' | undefined>(
+    undefined,
+  )
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   const handleTitleChange = async (
     event: React.FormEvent<HTMLHeadingElement>,
   ) => {
     const newName = event.currentTarget.textContent || ''
-    await updateGroup(parseInt(groupId || '0'), newName)
+    await updateGroup(parseInt(groupId || '0'), { name: newName })
+  }
+
+  const handleViewModeChange = async (newViewMode: 'table' | 'kanban') => {
+    setViewMode(newViewMode)
+    if (groupId) {
+      try {
+        await updateGroup(parseInt(groupId, 10), { viewMode: newViewMode })
+      } catch (err) {
+        console.error('Failed to save view mode:', err)
+      }
+    }
   }
 
   const handleTitleKeyDown = (
@@ -64,6 +79,8 @@ export default function TodoGroup() {
             if (titleRef.current) {
               titleRef.current.textContent = taskGroup.name || ''
             }
+            // Set view mode from group data, defaulting to 'table'
+            setViewMode(taskGroup.viewMode || 'table')
           } else {
             setError('Group not found')
           }
@@ -119,9 +136,55 @@ export default function TodoGroup() {
       <nav className="page-nav">
         <div className="nav-left">
           {groupId && (
-            <Link to="/todo" className="back-link">
-              ← Back to Todo Groups
-            </Link>
+            <>
+              <Link to="/todo" className="back-link">
+                ← Back to Todo Groups
+              </Link>
+              <div
+                className="view-toggle"
+                style={{
+                  display: 'inline-flex',
+                  gap: '0',
+                  marginLeft: '16px',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('table')}
+                  style={{
+                    padding: '6px 12px',
+                    border: 'none',
+                    outline: 'none',
+                    background: viewMode === 'table' ? '#667eea' : '#f0f0f0',
+                    color: viewMode === 'table' ? '#fff' : '#666',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: viewMode === 'table' ? 'bold' : 'normal',
+                    borderRight: '1px solid #e0e0e0',
+                  }}
+                >
+                  Table
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('kanban')}
+                  style={{
+                    padding: '6px 12px',
+                    border: 'none',
+                    outline: 'none',
+                    background: viewMode === 'kanban' ? '#667eea' : '#f0f0f0',
+                    color: viewMode === 'kanban' ? '#fff' : '#666',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: viewMode === 'kanban' ? 'bold' : 'normal',
+                  }}
+                >
+                  Kanban
+                </button>
+              </div>
+            </>
           )}
         </div>
         <div className="nav-right">
@@ -181,15 +244,26 @@ export default function TodoGroup() {
         suppressContentEditableWarning={true}
       ></h1>
 
-      <TodoGroupTable
-        taskData={taskData}
-        loading={loading}
-        error={error}
-        onTaskDataChange={setTaskData}
-        groupId={groupId ? parseInt(groupId, 10) : undefined}
-        filterQuery={filterQuery}
-        onFilteredCountChange={setFilteredCount}
-      />
+      {viewMode === 'table' ? (
+        <TodoGroupTable
+          taskData={taskData}
+          loading={loading}
+          error={error}
+          onTaskDataChange={setTaskData}
+          groupId={groupId ? parseInt(groupId, 10) : undefined}
+          filterQuery={filterQuery}
+          onFilteredCountChange={setFilteredCount}
+        />
+      ) : viewMode === 'kanban' ? (
+        <TodoKanbanView
+          taskData={taskData}
+          loading={loading}
+          error={error}
+          onTaskDataChange={setTaskData}
+          groupId={groupId ? parseInt(groupId, 10) : undefined}
+          filterQuery={filterQuery}
+        />
+      ) : null}
 
       {taskData[0] && groupId && (
         <PinnedTasks

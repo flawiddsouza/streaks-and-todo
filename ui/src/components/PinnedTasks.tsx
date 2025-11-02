@@ -60,9 +60,9 @@ import {
   type TaskGroup,
 } from '../api'
 import './PinnedTasks.css'
-import confirmAsync from './confirmAsync'
-import { parseTaskWithExtraInfo } from './TodoGroupTable'
 import { formatTaskWithExtraInfo } from '../helpers'
+import { parseTaskWithExtraInfo } from '../utils/task-utils'
+import confirmAsync from './confirmAsync'
 
 type PinTask = {
   id: number
