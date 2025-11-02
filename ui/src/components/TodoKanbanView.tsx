@@ -139,6 +139,12 @@ function KanbanCardComponent({
   card,
   onDelete,
   onReorder,
+  onEdit,
+  isEditing,
+  editValue,
+  onEditChange,
+  onEditSave,
+  onEditCancel,
   filterQuery = '',
 }: {
   card: KanbanCard
@@ -151,6 +157,12 @@ function KanbanCardComponent({
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
+  onEdit: () => void
+  isEditing: boolean
+  editValue: string
+  onEditChange: (value: string) => void
+  onEditSave: () => void
+  onEditCancel: () => void
   filterQuery?: string
 }) {
   const cardRef = useRef<HTMLDivElement>(null)
@@ -158,6 +170,7 @@ function KanbanCardComponent({
   const [isDraggedOver, setIsDraggedOver] = useState(false)
 
   useEffect(() => {
+    if (isEditing) return
     const element = cardRef.current
     if (!element) return
 
@@ -202,7 +215,7 @@ function KanbanCardComponent({
         },
       }),
     )
-  }, [card, onReorder])
+  }, [card, onReorder, isEditing])
 
   const { text: displayText } = formatTaskWithExtraInfo(
     card.taskName,
@@ -214,6 +227,30 @@ function KanbanCardComponent({
     filterQuery.trim() &&
     displayText.toLowerCase().includes(filterQuery.toLowerCase())
 
+  if (isEditing) {
+    return (
+      <div className="kanban-card kanban-card-editing">
+        <input
+          type="text"
+          className="kanban-card-edit-input"
+          value={editValue}
+          onChange={(e) => onEditChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              onEditSave()
+            } else if (e.key === 'Escape') {
+              onEditCancel()
+            }
+          }}
+          onBlur={onEditSave}
+          placeholder="Extra info (optional)"
+          spellCheck={false}
+          ref={(input) => input?.focus()}
+        />
+      </div>
+    )
+  }
+
   return (
     <div
       ref={cardRef}
@@ -224,6 +261,17 @@ function KanbanCardComponent({
     >
       <div className="kanban-card-header">
         <span className="kanban-card-task-name">{displayText}</span>
+        <button
+          type="button"
+          className="kanban-card-edit-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            onEdit()
+          }}
+          title="Edit extra info"
+        >
+          ✏️
+        </button>
         <button
           type="button"
           className="kanban-card-delete-btn"
@@ -437,6 +485,11 @@ function KanbanColumn({
   onTaskSelect,
   availableTasks,
   filterQuery,
+  editingTask,
+  onEditTask,
+  onEditChange,
+  onEditSave,
+  onEditCancel,
 }: {
   title: string
   dateGroups: DateGroup[]
@@ -460,6 +513,11 @@ function KanbanColumn({
   ) => Promise<void>
   availableTasks: FlatTask[]
   filterQuery?: string
+  editingTask: { logId: number; extraInfo: string } | null
+  onEditTask: (card: KanbanCard) => void
+  onEditChange: (value: string) => void
+  onEditSave: () => void
+  onEditCancel: () => void
 }) {
   const columnRef = useRef<HTMLDivElement>(null)
   const [isDropTarget, setIsDropTarget] = useState(false)
@@ -616,6 +674,12 @@ function KanbanColumn({
                           card={card}
                           onDelete={() => onCardDelete(card)}
                           onReorder={onCardReorder}
+                          onEdit={() => onEditTask(card)}
+                          isEditing={editingTask?.logId === card.id}
+                          editValue={editingTask?.extraInfo || ''}
+                          onEditChange={onEditChange}
+                          onEditSave={onEditSave}
+                          onEditCancel={onEditCancel}
                           filterQuery={filterQuery}
                         />
                         <DropZone
@@ -652,6 +716,11 @@ export default function TodoKanbanView({
   groupId,
   filterQuery = '',
 }: TodoKanbanViewProps) {
+  const [editingTask, setEditingTask] = useState<{
+    logId: number
+    extraInfo: string
+  } | null>(null)
+
   const kanbanData = useMemo(() => {
     const allCards: KanbanCard[] = []
 
@@ -877,6 +946,107 @@ export default function TodoKanbanView({
     [groupId, onTaskDataChange],
   )
 
+  const updateCardExtraInfo = useCallback(
+    async (card: KanbanCard, newExtraInfo: string) => {
+      if (!groupId) return
+
+      try {
+        const updatedLog = await setTaskLog(
+          card.taskId,
+          card.date,
+          card.done,
+          newExtraInfo,
+          card.id,
+        )
+
+        let didUpdate = false
+        onTaskDataChange((prev) => {
+          const next = prev.map((group) => {
+            const taskIndex = group.tasks.findIndex(
+              (task) => task.id === updatedLog.taskId,
+            )
+            if (taskIndex === -1) return group
+
+            const task = group.tasks[taskIndex]
+            const recordIndex = task.records.findIndex(
+              (record) => record.id === updatedLog.id,
+            )
+            if (recordIndex === -1) return group
+
+            didUpdate = true
+
+            const updatedRecords = task.records.map((record, idx) =>
+              idx === recordIndex
+                ? {
+                    ...record,
+                    extraInfo: updatedLog.extraInfo || undefined,
+                  }
+                : record,
+            )
+
+            const updatedTasks = [...group.tasks]
+            updatedTasks[taskIndex] = {
+              ...task,
+              records: updatedRecords,
+            }
+
+            return {
+              ...group,
+              tasks: updatedTasks,
+            }
+          })
+
+          return didUpdate ? next : prev
+        })
+
+        if (!didUpdate) {
+          try {
+            const refreshed = await fetchGroupTasks(groupId)
+            if (refreshed) onTaskDataChange([refreshed])
+          } catch (refreshErr) {
+            console.error('Refresh after edit failed:', refreshErr)
+          }
+        }
+      } catch (err) {
+        console.error('Error updating card extra info:', err)
+        alert('Failed to update task')
+      }
+    },
+    [groupId, onTaskDataChange],
+  )
+
+  const handleEditTask = useCallback((card: KanbanCard) => {
+    setEditingTask({ logId: card.id, extraInfo: card.extraInfo || '' })
+  }, [])
+
+  const handleEditChange = useCallback((value: string) => {
+    setEditingTask((prev) => (prev ? { ...prev, extraInfo: value } : null))
+  }, [])
+
+  const handleEditSave = useCallback(async () => {
+    if (!editingTask) return
+
+    // Find the card being edited
+    const card = kanbanData.todoGroups
+      .flatMap((g) => g.cards)
+      .concat(kanbanData.doneGroups.flatMap((g) => g.cards))
+      .find((c) => c.id === editingTask.logId)
+
+    if (card) {
+      try {
+        await updateCardExtraInfo(card, editingTask.extraInfo)
+      } finally {
+        setEditingTask(null)
+      }
+    } else {
+      setEditingTask(null)
+    }
+  }, [editingTask, kanbanData, updateCardExtraInfo])
+
+  const handleEditCancel = useCallback(() => {
+    setEditingTask(null)
+  }, [])
+
   const handleCardReorder = useCallback(
     async (
       targetDate: string,
@@ -1053,6 +1223,11 @@ export default function TodoKanbanView({
           onTaskSelect={handleTaskSelect}
           availableTasks={allTasks}
           filterQuery={filterQuery}
+          editingTask={editingTask}
+          onEditTask={handleEditTask}
+          onEditChange={handleEditChange}
+          onEditSave={handleEditSave}
+          onEditCancel={handleEditCancel}
         />
         <KanbanColumn
           title="DONE"
@@ -1064,6 +1239,11 @@ export default function TodoKanbanView({
           onTaskSelect={handleTaskSelect}
           availableTasks={allTasks}
           filterQuery={filterQuery}
+          editingTask={editingTask}
+          onEditTask={handleEditTask}
+          onEditChange={handleEditChange}
+          onEditSave={handleEditSave}
+          onEditCancel={handleEditCancel}
         />
       </div>
     </div>

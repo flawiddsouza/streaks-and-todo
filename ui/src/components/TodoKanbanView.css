@@ -260,12 +260,67 @@
   justify-content: center;
   border-radius: 3px;
   flex-shrink: 0;
+  opacity: 0;
   transition: all 0.2s;
+}
+
+.kanban-card-edit-btn {
+  background: transparent;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.kanban-card:hover .kanban-card-delete-btn,
+.kanban-card:hover .kanban-card-edit-btn {
+  opacity: 1;
 }
 
 .kanban-card-delete-btn:hover {
   background: #ffebee;
   color: #d32f2f;
+}
+
+.kanban-card-edit-btn:hover {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.kanban-card-editing {
+  padding: 8px;
+}
+
+.kanban-card-edit-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #667eea;
+  border-radius: 4px;
+  font-size: 14px;
+  background: white;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.kanban-card-edit-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.kanban-card-edit-input::placeholder {
+  color: #999;
+  font-style: italic;
 }
 
 /* Scrollbar Styling */
