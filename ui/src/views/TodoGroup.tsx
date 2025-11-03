@@ -8,6 +8,7 @@ import {
 } from '../api'
 import ManageTasksModal from '../components/ManageTasksModal'
 import PinnedTasks from '../components/PinnedTasks'
+import TodoCalendarView from '../components/TodoCalendarView'
 import TodoGroupTable from '../components/TodoGroupTable'
 import TodoKanbanView from '../components/TodoKanbanView'
 import { type AppEvent, onEvent } from '../events'
@@ -20,9 +21,9 @@ export default function TodoGroup() {
   const [showManageTasks, setShowManageTasks] = useState(false)
   const [filterQuery, setFilterQuery] = useState('')
   const [filteredCount, setFilteredCount] = useState(0)
-  const [viewMode, setViewMode] = useState<'table' | 'kanban' | undefined>(
-    undefined,
-  )
+  const [viewMode, setViewMode] = useState<
+    'table' | 'kanban' | 'calendar' | undefined
+  >(undefined)
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   const handleTitleChange = async (
@@ -32,7 +33,9 @@ export default function TodoGroup() {
     await updateGroup(parseInt(groupId || '0'), { name: newName })
   }
 
-  const handleViewModeChange = async (newViewMode: 'table' | 'kanban') => {
+  const handleViewModeChange = async (
+    newViewMode: 'table' | 'kanban' | 'calendar',
+  ) => {
     setViewMode(newViewMode)
     if (groupId) {
       try {
@@ -179,9 +182,26 @@ export default function TodoGroup() {
                     cursor: 'pointer',
                     fontSize: '14px',
                     fontWeight: viewMode === 'kanban' ? 'bold' : 'normal',
+                    borderRight: '1px solid #e0e0e0',
                   }}
                 >
                   Kanban
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleViewModeChange('calendar')}
+                  style={{
+                    padding: '6px 12px',
+                    border: 'none',
+                    outline: 'none',
+                    background: viewMode === 'calendar' ? '#667eea' : '#f0f0f0',
+                    color: viewMode === 'calendar' ? '#fff' : '#666',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: viewMode === 'calendar' ? 'bold' : 'normal',
+                  }}
+                >
+                  Calendar
                 </button>
               </div>
             </>
@@ -256,6 +276,15 @@ export default function TodoGroup() {
         />
       ) : viewMode === 'kanban' ? (
         <TodoKanbanView
+          taskData={taskData}
+          loading={loading}
+          error={error}
+          onTaskDataChange={setTaskData}
+          groupId={groupId ? parseInt(groupId, 10) : undefined}
+          filterQuery={filterQuery}
+        />
+      ) : viewMode === 'calendar' ? (
+        <TodoCalendarView
           taskData={taskData}
           loading={loading}
           error={error}

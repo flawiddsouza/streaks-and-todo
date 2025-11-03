@@ -56,7 +56,7 @@ export interface ApiGroup {
   name: string
   type: 'streaks' | 'tasks'
   sortOrder: number
-  viewMode?: 'table' | 'kanban'
+  viewMode?: 'table' | 'kanban' | 'calendar'
 }
 
 export interface ApiStreakGroupResponse {
@@ -124,7 +124,7 @@ export interface StreakGroup {
 export interface TaskGroup {
   id: number
   name: string
-  viewMode?: 'table' | 'kanban'
+  viewMode?: 'table' | 'kanban' | 'calendar'
   tasks: TaskItem[]
   notes?: { date: string; note: string }[]
   pins?: {
@@ -664,7 +664,7 @@ export const deleteGroup = async (groupId: number): Promise<void> => {
 
 export const updateGroup = async (
   groupId: number,
-  updates: { name?: string; viewMode?: 'table' | 'kanban' },
+  updates: { name?: string; viewMode?: 'table' | 'kanban' | 'calendar' },
 ): Promise<ApiGroup> => {
   const response = await apiFetch(`/groups/${groupId}`, {
     method: 'PUT',

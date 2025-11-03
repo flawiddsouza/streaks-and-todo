@@ -48,7 +48,7 @@ export const groupsTable = pgTable('groups', {
   name: varchar({ length: 255 }).notNull(),
   type: groupTypeEnum().notNull(),
   sortOrder: integer('sort_order').notNull(),
-  viewMode: smallint('view_mode'), // 0 = table, 1 = kanban
+  viewMode: smallint('view_mode'), // 0 = table, 1 = kanban, 2 = calendar
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

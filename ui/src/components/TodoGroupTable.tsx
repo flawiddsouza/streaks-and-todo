@@ -17,20 +17,22 @@ import {
 import { createPortal } from 'react-dom'
 import { TableVirtuoso, type TableVirtuosoHandle } from 'react-virtuoso'
 import {
-  deleteTaskLogById,
   fetchGroupTasks,
-  moveTaskLog,
   setTaskLog,
   type TaskGroup,
   type TaskRecord,
   updateGroupNote,
 } from '../api'
-import confirmAsync from './confirmAsync'
 import './TodoGroupTable.css'
 import { formatTaskWithExtraInfo } from '../helpers'
 import {
-  createTaskAndAddToGroup,
-  parseTaskWithExtraInfo,
+  addOrCreateTask,
+  copyTaskToClipboard,
+  deleteTaskLog,
+  handleAddFromPin,
+  handleTaskSelection,
+  processTaskInput,
+  reorderTaskLog,
 } from '../utils/task-utils'
 
 interface TodoGroupTableProps {
@@ -960,53 +962,6 @@ export default function TodoGroupTable({
     [taskLookup, taskData, onTaskDataChange],
   )
 
-  const deleteTaskRecord = useCallback(
-    async (logId: number) => {
-      if (logId <= 0) {
-        console.error('Invalid logId for deletion:', logId)
-        return
-      }
-
-      try {
-        await deleteTaskLogById(logId)
-
-        // Remove record from local state by searching for record.id === logId
-        onTaskDataChange((prevData) => {
-          const newData = prevData.map((g) => ({ ...g, tasks: [...g.tasks] }))
-
-          for (let gi = 0; gi < newData.length; gi++) {
-            const group = newData[gi]
-            for (let ti = 0; ti < group.tasks.length; ti++) {
-              const task = { ...group.tasks[ti] }
-              const recIdx = task.records.findIndex((r) => r.id === logId)
-              if (recIdx >= 0) {
-                const updatedRecords = [...task.records]
-                updatedRecords.splice(recIdx, 1)
-
-                if (updatedRecords.length === 0) {
-                  // remove the entire task
-                  group.tasks.splice(ti, 1)
-                } else {
-                  task.records = updatedRecords
-                  group.tasks[ti] = task
-                }
-
-                newData[gi] = { ...group }
-                return newData
-              }
-            }
-          }
-
-          // If not found locally, just return previous (server deletion succeeded)
-          return prevData
-        })
-      } catch (err) {
-        console.error('Error deleting task record:', err)
-      }
-    },
-    [onTaskDataChange],
-  )
-
   const addTaskToCell = useCallback(
     async (
       taskId: number,
@@ -1062,30 +1017,6 @@ export default function TodoGroupTable({
     [groupId, onTaskDataChange, taskLookup],
   )
 
-  const handleTaskCreationAndAddition = useCallback(
-    async (
-      inputValue: string,
-      date: string,
-      done: boolean,
-      setInputValue: (value: string) => void,
-    ) => {
-      if (!groupId) return
-      try {
-        await createTaskAndAddToGroup(
-          groupId,
-          inputValue,
-          date,
-          done,
-          onTaskDataChange,
-        )
-        setInputValue('')
-      } catch (err) {
-        alert((err as Error).message)
-      }
-    },
-    [groupId, onTaskDataChange],
-  )
-
   // getAvailableTasks removed – suggestions should include all tasks and allow
   // multiple entries of the same task per date (duplicates allowed).
 
@@ -1097,112 +1028,26 @@ export default function TodoGroupTable({
       done: boolean,
       setInputValue: (value: string) => void,
     ) => {
-      if (!selectedTask && inputValue) {
-        await handleTaskCreationAndAddition(
+      if (!groupId) return
+
+      try {
+        await handleTaskSelection(
+          selectedTask,
           inputValue,
           date,
           done,
-          setInputValue,
+          groupId,
+          allTasks,
+          onTaskDataChange,
+          addTaskToCell, // Pass TodoGroupTable's optimized function
         )
-        return
-      }
-
-      setInputValue('')
-      if (!selectedTask) return
-
-      // Check if input has custom extra info for this task
-      const { extraInfo: inputExtraInfo } = parseTaskWithExtraInfo(inputValue)
-      const extraInfoToUse =
-        inputExtraInfo || selectedTask.defaultExtraInfo || undefined
-
-      await addTaskToCell(selectedTask.id, date, done, extraInfoToUse)
-    },
-    [handleTaskCreationAndAddition, addTaskToCell],
-  )
-
-  const addTaskByNameOrCreate = useCallback(
-    async (
-      taskText: string,
-      date: string,
-      done: boolean,
-      availableTasks: FlatTask[],
-    ) => {
-      const { task: taskName, extraInfo } = parseTaskWithExtraInfo(taskText)
-      const existingTask = availableTasks.find(
-        (t) => t.task.toLowerCase() === taskName.toLowerCase(),
-      )
-
-      if (existingTask) {
-        await addTaskToCell(
-          existingTask.id,
-          date,
-          done,
-          extraInfo || existingTask.defaultExtraInfo || undefined,
-        )
-      } else {
-        await handleTaskCreationAndAddition(taskText, date, done, () => {})
+        setInputValue('')
+      } catch (err) {
+        console.error('Error handling task selection:', err)
+        alert((err as Error).message)
       }
     },
-    [addTaskToCell, handleTaskCreationAndAddition],
-  )
-
-  // Helper function to process tasks from JSON or plain text
-  const processTaskInput = useCallback(
-    async (
-      inputText: string,
-      date: string,
-      done: boolean,
-      availableTasks: FlatTask[],
-    ) => {
-      // Try parsing as JSON first
-      try {
-        const parsed = JSON.parse(inputText)
-        if (Array.isArray(parsed)) {
-          // Handle JSON array format
-          const idByName = new Map(
-            availableTasks.map((t) => [t.task.toLowerCase(), t.id]),
-          )
-
-          for (const raw of parsed) {
-            if (!raw || typeof raw !== 'object') continue
-            const obj = raw as Record<string, unknown>
-            let id: number | undefined
-
-            if (typeof obj.taskId === 'number') {
-              id = obj.taskId
-            } else if (
-              typeof obj.task === 'string' &&
-              idByName.has(obj.task.toLowerCase())
-            ) {
-              id = idByName.get(obj.task.toLowerCase())
-            }
-
-            if (id) {
-              const extraInfo =
-                typeof obj.extraInfo === 'string' ? obj.extraInfo : undefined
-              const logId =
-                typeof obj.logId === 'number' ? obj.logId : undefined
-              await addTaskToCell(id, date, done, extraInfo, logId)
-            }
-          }
-          return true // Processed as JSON
-        }
-      } catch {
-        // Not JSON, continue with plain text processing
-      }
-
-      // Handle plain text (multi-line or single line)
-      const lines = inputText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-
-      for (const line of lines) {
-        await addTaskByNameOrCreate(line, date, done, availableTasks)
-      }
-      return false // Processed as plain text
-    },
-    [addTaskToCell, addTaskByNameOrCreate],
+    [groupId, allTasks, onTaskDataChange, addTaskToCell],
   )
 
   const handleKeyDown = useCallback(
@@ -1216,13 +1061,21 @@ export default function TodoGroupTable({
     ) => {
       if (e.key === 'Enter') {
         const trimmedValue = inputValue.trim()
-        if (!trimmedValue) return
+        if (!trimmedValue || !groupId) return
 
         // Try parsing as JSON first (new feature for pasted task data)
         try {
           const parsed = JSON.parse(trimmedValue)
           if (Array.isArray(parsed)) {
-            await processTaskInput(trimmedValue, date, done, availableTasks)
+            await processTaskInput(
+              trimmedValue,
+              date,
+              done,
+              groupId,
+              availableTasks,
+              onTaskDataChange,
+              addTaskToCell, // Pass TodoGroupTable's optimized function
+            )
             setInputValue('')
             return
           }
@@ -1230,51 +1083,35 @@ export default function TodoGroupTable({
           // Not JSON, continue with normal processing
         }
 
-        // Normal task processing (original behavior preserved)
-        const { task: taskName, extraInfo } =
-          parseTaskWithExtraInfo(trimmedValue)
-        const existingTask = availableTasks.find((t) => t.task === taskName)
-
-        if (existingTask) {
-          // Add existing task with custom extra info (if provided) or default extra info
-          await addTaskToCell(
-            existingTask.id,
-            date,
-            done,
-            extraInfo || existingTask.defaultExtraInfo || undefined,
-          )
-          setInputValue('')
-        } else {
-          // Create new task
-          await handleTaskCreationAndAddition(
-            trimmedValue,
-            date,
-            done,
-            setInputValue,
-          )
-        }
+        // Use shared utility for unified task creation/addition logic
+        await addOrCreateTask(
+          trimmedValue,
+          date,
+          done,
+          groupId,
+          availableTasks,
+          onTaskDataChange,
+          addTaskToCell,
+        )
+        setInputValue('')
       }
     },
-    [processTaskInput, handleTaskCreationAndAddition, addTaskToCell],
+    [groupId, onTaskDataChange, addTaskToCell],
   )
 
   const currentDate = dayjs().format('YYYY-MM-DD')
 
   const handleDeleteClick = useCallback(
     async (logId: number, date: string) => {
-      if (date !== currentDate) {
-        const ok = await confirmAsync({
-          title: 'Confirm delete',
-          message: `Remove this task from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`,
-          confirmLabel: 'Delete',
-          cancelLabel: 'Cancel',
-          maxWidth: '480px',
-        })
-        if (!ok) return
+      if (!groupId) return
+
+      try {
+        await deleteTaskLog(logId, date, groupId, onTaskDataChange)
+      } catch (err) {
+        console.error('Error deleting task:', err)
       }
-      await deleteTaskRecord(logId)
     },
-    [deleteTaskRecord, currentDate],
+    [groupId, onTaskDataChange],
   )
 
   const updateTaskExtraInfo = useCallback(
@@ -1352,23 +1189,8 @@ export default function TodoGroupTable({
     setEditingTask(null)
   }, [])
 
-  const copyTaskToClipboard = useCallback(async (taskLog: TaskLog) => {
-    let textToCopy = taskLog.task
-    if (taskLog.extraInfo && taskLog.extraInfo.trim().length > 0) {
-      textToCopy += ` (${taskLog.extraInfo})`
-    }
-    try {
-      await navigator.clipboard.writeText(textToCopy)
-    } catch (err) {
-      console.error('Failed to copy task to clipboard:', err)
-      // Fallback for browsers that don't support clipboard API
-      const textArea = document.createElement('textarea')
-      textArea.value = textToCopy
-      document.body.appendChild(textArea)
-      textArea.select()
-      document.execCommand('copy')
-      document.body.removeChild(textArea)
-    }
+  const handleCopyTask = useCallback(async (taskLog: TaskLog) => {
+    await copyTaskToClipboard(taskLog.task, taskLog.extraInfo)
   }, [])
 
   const handleTaskReorder = useCallback(
@@ -1380,46 +1202,42 @@ export default function TodoGroupTable({
       position: 'before' | 'after',
       targetDone?: boolean,
     ) => {
-      try {
-        if (!groupId) return
-        // Determine target done status using current rows if not provided
-        const targetCell = dateRows.find((row) => row.date === targetDate)
-        let finalTargetDone: boolean | undefined = targetDone
-        if (!targetCell && sourceDate === targetDate) return
-        if (finalTargetDone === undefined) {
-          if (targetLogId !== -1 && targetCell) {
-            finalTargetDone = targetCell.doneTasks.some(
-              (t) => t.logId === targetLogId,
+      if (!groupId) return
+
+      // Determine target done status using current rows if not provided
+      const targetCell = dateRows.find((row) => row.date === targetDate)
+      let finalTargetDone: boolean | undefined = targetDone
+      if (!targetCell && sourceDate === targetDate) return
+      if (finalTargetDone === undefined) {
+        if (targetLogId !== -1 && targetCell) {
+          finalTargetDone = targetCell.doneTasks.some(
+            (t) => t.logId === targetLogId,
+          )
+        } else {
+          // fallback: infer from source column on that date
+          const sameDate = sourceDate === targetDate
+          if (sameDate && targetCell) {
+            const inDone = targetCell.doneTasks.some(
+              (t) => t.logId === sourceLogId,
             )
+            finalTargetDone = inDone
           } else {
-            // fallback: infer from source column on that date
-            const sameDate = sourceDate === targetDate
-            if (sameDate && targetCell) {
-              const inDone = targetCell.doneTasks.some(
-                (t) => t.logId === sourceLogId,
-              )
-              finalTargetDone = inDone
-            } else {
-              finalTargetDone = false
-            }
+            finalTargetDone = false
           }
         }
+      }
 
-        // Single API to move
-        await moveTaskLog({
-          logId: sourceLogId,
-          fromDate: sourceDate,
-          toDate: targetDate,
-          toDone: Boolean(finalTargetDone),
-          targetLogId: targetLogId === -1 ? undefined : targetLogId,
+      try {
+        await reorderTaskLog(
+          groupId,
+          sourceLogId,
+          targetDate,
+          sourceDate,
+          targetLogId,
           position,
-        })
-
-        // Refresh the data to reflect the new order
-        const updatedGroup = await fetchGroupTasks(groupId)
-        if (updatedGroup) {
-          onTaskDataChange([updatedGroup])
-        }
+          Boolean(finalTargetDone),
+          onTaskDataChange,
+        )
       } catch (err) {
         console.error('Error reordering tasks:', err)
       }
@@ -1443,19 +1261,29 @@ export default function TodoGroupTable({
         const dateRow = dateRows.find((row) => row.date === date)
         if (!dateRow) return
 
+        if (!groupId) return
+
         // Use the shared helper function for processing
-        await processTaskInput(text, date, done, availableTasksForCell)
+        await processTaskInput(
+          text,
+          date,
+          done,
+          groupId,
+          availableTasksForCell,
+          onTaskDataChange,
+          addTaskToCell, // Pass TodoGroupTable's optimized function
+        )
       } catch (err) {
         console.error('Error pasting tasks:', err)
         alert('Failed to paste tasks')
       }
     },
-    [dateRows, processTaskInput],
+    [dateRows, groupId, onTaskDataChange, addTaskToCell],
   )
 
   // Handle dropping a pinned task into a cell list. If dropped relative to a specific
   // task (targetLogId != -1), create the log and then reorder to the desired position.
-  const handleAddFromPin = useCallback(
+  const handleAddFromPinCallback = useCallback(
     async (
       date: string,
       targetLogId: number,
@@ -1463,47 +1291,17 @@ export default function TodoGroupTable({
       isDoneColumn: boolean,
       pin: { taskId: number; extraInfo?: string },
     ) => {
-      try {
-        // 1) Create/add the log for this task at the end of the target column
-        await addTaskToCell(pin.taskId, date, isDoneColumn, pin.extraInfo)
-
-        // 2) If a specific target item is provided, find the new log and reorder relative to it
-        if (!groupId) return
-        const updatedGroup = await fetchGroupTasks(groupId)
-        if (!updatedGroup) return
-
-        // Find the record we just added: last record for taskId on that date with matching done state
-        const t = updatedGroup.tasks.find((t) => t.id === pin.taskId)
-        const recs = (t?.records || []).filter(
-          (r) => r.date === date && r.done === isDoneColumn,
-        )
-        const newest = recs.sort((a, b) => b.id - a.id)[0]
-        if (!newest) {
-          onTaskDataChange([updatedGroup])
-          return
-        }
-
-        // If there is no specific target, just refresh state and return
-        if (targetLogId === -1) {
-          onTaskDataChange([updatedGroup])
-          return
-        }
-
-        // Reorder new log relative to the target
-        await moveTaskLog({
-          logId: newest.id,
-          fromDate: date,
-          toDate: date,
-          toDone: isDoneColumn,
-          targetLogId,
-          position,
-        })
-
-        const afterMove = await fetchGroupTasks(groupId)
-        if (afterMove) onTaskDataChange([afterMove])
-      } catch (err) {
-        console.error('Error adding from pin:', err)
-      }
+      if (!groupId) return
+      await handleAddFromPin(
+        date,
+        targetLogId,
+        position,
+        isDoneColumn,
+        pin,
+        groupId,
+        onTaskDataChange,
+        addTaskToCell, // Pass optimized function for TodoGroupTable
+      )
     },
     [addTaskToCell, groupId, onTaskDataChange],
   )
@@ -1578,7 +1376,7 @@ export default function TodoGroupTable({
                   onPastePinned={(date, done, avail) =>
                     handlePastePinned(date, done, avail)
                   }
-                  onAddFromPin={handleAddFromPin}
+                  onAddFromPin={handleAddFromPinCallback}
                   onTaskSelect={(selectedTask, inputValue, reset) => {
                     handleTaskSelect(
                       selectedTask,
@@ -1602,7 +1400,7 @@ export default function TodoGroupTable({
                   }}
                   onToggle={toggleTaskRecord}
                   onDelete={handleDeleteClick}
-                  onCopy={copyTaskToClipboard}
+                  onCopy={handleCopyTask}
                   onEdit={handleEditTask}
                   editingTask={editingTask}
                   onEditChange={handleEditChange}
@@ -1622,7 +1420,7 @@ export default function TodoGroupTable({
                   onPastePinned={(date, done, avail) =>
                     handlePastePinned(date, done, avail)
                   }
-                  onAddFromPin={handleAddFromPin}
+                  onAddFromPin={handleAddFromPinCallback}
                   onTaskSelect={(selectedTask, inputValue, reset) => {
                     handleTaskSelect(
                       selectedTask,
@@ -1646,7 +1444,7 @@ export default function TodoGroupTable({
                   }}
                   onToggle={toggleTaskRecord}
                   onDelete={handleDeleteClick}
-                  onCopy={copyTaskToClipboard}
+                  onCopy={handleCopyTask}
                   onEdit={handleEditTask}
                   editingTask={editingTask}
                   onEditChange={handleEditChange}

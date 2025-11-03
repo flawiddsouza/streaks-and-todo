@@ -16,19 +16,16 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  deleteTaskLogById,
-  fetchGroupTasks,
-  moveTaskLog,
-  setTaskLog,
-  type TaskGroup,
-} from '../api'
+import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../api'
 import { formatTaskWithExtraInfo } from '../helpers'
 import {
-  createTaskAndAddToGroup,
-  parseTaskWithExtraInfo,
+  copyTaskToClipboard,
+  deleteTaskLog,
+  handleAddFromPin,
+  handleTaskSelection,
+  processTaskInput,
+  reorderTaskLog,
 } from '../utils/task-utils'
-import confirmAsync from './confirmAsync'
 import './TodoKanbanView.css'
 
 interface TodoKanbanViewProps {
@@ -82,6 +79,13 @@ interface DropZoneProps {
     position: 'before' | 'after',
     targetDone?: boolean,
   ) => void
+  onAddFromPin?: (
+    date: string,
+    targetLogId: number,
+    position: 'before' | 'after',
+    isDoneColumn: boolean,
+    pin: { taskId: number; extraInfo?: string },
+  ) => void
 }
 
 function DropZone({
@@ -90,6 +94,7 @@ function DropZone({
   position,
   isDoneColumn,
   onReorder,
+  onAddFromPin,
 }: DropZoneProps) {
   const dropRef = useRef<HTMLDivElement>(null)
   const [isActive, setIsActive] = useState(false)
@@ -103,6 +108,9 @@ function DropZone({
       canDrop: ({ source }) => {
         if (source.data.type === 'kanban-card') {
           return source.data.cardId !== targetLogId
+        }
+        if (source.data.type === 'pin-item') {
+          return true
         }
         return false
       },
@@ -121,10 +129,19 @@ function DropZone({
             position,
             isDoneColumn,
           )
+        } else if (source.data.type === 'pin-item') {
+          if (onAddFromPin) {
+            const taskId = source.data.taskId as number
+            const extraInfo = source.data.extraInfo as string | undefined
+            onAddFromPin(date, targetLogId, position, isDoneColumn, {
+              taskId,
+              extraInfo,
+            })
+          }
         }
       },
     })
-  }, [date, targetLogId, position, isDoneColumn, onReorder])
+  }, [date, targetLogId, position, isDoneColumn, onReorder, onAddFromPin])
 
   return (
     <div
@@ -263,6 +280,17 @@ function KanbanCardComponent({
         <span className="kanban-card-task-name">{displayText}</span>
         <button
           type="button"
+          className="kanban-card-copy-btn"
+          onClick={(e) => {
+            e.stopPropagation()
+            copyTaskToClipboard(card.taskName, card.extraInfo)
+          }}
+          title="Copy to clipboard"
+        >
+          📋
+        </button>
+        <button
+          type="button"
           className="kanban-card-edit-btn"
           onClick={(e) => {
             e.stopPropagation()
@@ -291,6 +319,8 @@ function KanbanInput({
   availableTasks,
   onTaskSelect,
   disabled = false,
+  groupId,
+  onTaskDataChange,
 }: {
   date: string
   isDoneColumn: boolean
@@ -303,6 +333,8 @@ function KanbanInput({
     reset: () => void,
   ) => Promise<void>
   disabled?: boolean
+  groupId?: number
+  onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
 }) {
   const [inputValue, setInputValue] = useState('')
   const menuRef = useRef<HTMLUListElement | null>(null)
@@ -344,6 +376,54 @@ function KanbanInput({
       window.removeEventListener('scroll', updatePos, true)
     }
   }, [menuOpen])
+
+  const handleKeyDown = async (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ): Promise<void> => {
+    if (disabled) return
+    if (e.key === 'Home' || e.key === 'End') {
+      // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
+      ;(e.nativeEvent as any).preventDownshiftDefault = true
+    }
+
+    if (e.key === 'Enter') {
+      const trimmedValue = inputValue.trim()
+      if (!trimmedValue || !groupId) {
+        if (!trimmedValue) {
+          return
+        }
+        // groupId not available, fall back to regular selection
+        onTaskSelect(null, inputValue, date, isDoneColumn, () =>
+          setInputValue(''),
+        )
+        return
+      }
+
+      // Try parsing as JSON first (new feature for pasted task data)
+      try {
+        const parsed = JSON.parse(trimmedValue)
+        if (Array.isArray(parsed)) {
+          await processTaskInput(
+            trimmedValue,
+            date,
+            isDoneColumn,
+            groupId,
+            availableTasks,
+            onTaskDataChange,
+          )
+          setInputValue('')
+          return
+        }
+      } catch {
+        // Not JSON, continue with normal processing
+      }
+
+      // Regular task selection/creation
+      onTaskSelect(null, inputValue, date, isDoneColumn, () =>
+        setInputValue(''),
+      )
+    }
+  }
 
   return (
     <Downshift<FlatTask>
@@ -410,19 +490,10 @@ function KanbanInput({
                 enterKeyHint: 'enter',
                 disabled: disabled,
                 onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                  if (disabled) return
-                  if (e.key === 'Home' || e.key === 'End') {
-                    // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
-                    ;(e.nativeEvent as any).preventDownshiftDefault = true
+                  if (isOpen && highlightedIndex != null && e.key === 'Enter') {
+                    return // Let Downshift handle selection
                   }
-                  if (e.key === 'Enter' && isOpen && highlightedIndex != null) {
-                    return
-                  }
-                  if (e.key === 'Enter') {
-                    onTaskSelect(null, inputValue, date, isDoneColumn, () =>
-                      setInputValue(''),
-                    )
-                  }
+                  handleKeyDown(e)
                 },
                 spellCheck: false,
               })}
@@ -482,6 +553,7 @@ function KanbanColumn({
   onCardDelete,
   onCardStatusToggle,
   onCardReorder,
+  onAddFromPin,
   onTaskSelect,
   availableTasks,
   filterQuery,
@@ -490,6 +562,8 @@ function KanbanColumn({
   onEditChange,
   onEditSave,
   onEditCancel,
+  groupId,
+  onTaskDataChange,
 }: {
   title: string
   dateGroups: DateGroup[]
@@ -503,6 +577,13 @@ function KanbanColumn({
     targetLogId: number,
     position: 'before' | 'after',
     targetDone?: boolean,
+  ) => void
+  onAddFromPin?: (
+    date: string,
+    targetLogId: number,
+    position: 'before' | 'after',
+    isDoneColumn: boolean,
+    pin: { taskId: number; extraInfo?: string },
   ) => void
   onTaskSelect: (
     task: FlatTask | null,
@@ -518,6 +599,8 @@ function KanbanColumn({
   onEditChange: (value: string) => void
   onEditSave: () => void
   onEditCancel: () => void
+  groupId?: number
+  onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
 }) {
   const columnRef = useRef<HTMLDivElement>(null)
   const [isDropTarget, setIsDropTarget] = useState(false)
@@ -606,6 +689,8 @@ function KanbanColumn({
                 isDoneColumn={isDoneColumn}
                 availableTasks={availableTasks}
                 disabled={!customDate}
+                groupId={groupId}
+                onTaskDataChange={onTaskDataChange}
                 onTaskSelect={async (task, inputValue, date, done, reset) => {
                   await onTaskSelect(task, inputValue, date, done, reset)
                   setCustomDate('')
@@ -657,6 +742,7 @@ function KanbanColumn({
                       position="after"
                       isDoneColumn={isDoneColumn}
                       onReorder={onCardReorder}
+                      onAddFromPin={onAddFromPin}
                     />
                   ) : (
                     group.cards.map((card, index) => (
@@ -668,6 +754,7 @@ function KanbanColumn({
                             position="before"
                             isDoneColumn={isDoneColumn}
                             onReorder={onCardReorder}
+                            onAddFromPin={onAddFromPin}
                           />
                         )}
                         <KanbanCardComponent
@@ -688,6 +775,7 @@ function KanbanColumn({
                           position="after"
                           isDoneColumn={isDoneColumn}
                           onReorder={onCardReorder}
+                          onAddFromPin={onAddFromPin}
                         />
                       </div>
                     ))
@@ -697,6 +785,8 @@ function KanbanColumn({
                     isDoneColumn={isDoneColumn}
                     availableTasks={availableTasks}
                     onTaskSelect={onTaskSelect}
+                    groupId={groupId}
+                    onTaskDataChange={onTaskDataChange}
                   />
                 </div>
               </div>
@@ -872,74 +962,9 @@ export default function TodoKanbanView({
     async (card: KanbanCard) => {
       if (!groupId) return
 
-      const currentDate = dayjs().format('YYYY-MM-DD')
-
-      // Only show confirmation if deleting from a past date
-      if (card.date !== currentDate) {
-        const ok = await confirmAsync({
-          title: 'Confirm delete',
-          message: `Remove "${card.taskName}" from ${dayjs(card.date).format('DD-MMM-YY')}? This will delete the record for that day.`,
-          confirmLabel: 'Delete',
-          cancelLabel: 'Cancel',
-          maxWidth: '480px',
-        })
-        if (!ok) return
-      }
-
       try {
-        await deleteTaskLogById(card.id)
-
-        let removed = false
-        onTaskDataChange((prev) => {
-          const next = prev.map((group) => {
-            let groupChanged = false
-            const updatedTasks: typeof group.tasks = []
-
-            for (const task of group.tasks) {
-              const recordIndex = task.records.findIndex(
-                (record) => record.id === card.id,
-              )
-
-              if (recordIndex === -1) {
-                updatedTasks.push(task)
-                continue
-              }
-
-              groupChanged = true
-              removed = true
-
-              const nextRecords = [...task.records]
-              nextRecords.splice(recordIndex, 1)
-
-              if (nextRecords.length > 0) {
-                updatedTasks.push({
-                  ...task,
-                  records: nextRecords,
-                })
-              }
-            }
-
-            return groupChanged
-              ? {
-                  ...group,
-                  tasks: updatedTasks,
-                }
-              : group
-          })
-
-          return removed ? next : prev
-        })
-
-        if (!removed) {
-          try {
-            const refreshed = await fetchGroupTasks(groupId)
-            if (refreshed) onTaskDataChange([refreshed])
-          } catch (refreshErr) {
-            console.error('Refresh after delete failed:', refreshErr)
-          }
-        }
-      } catch (err) {
-        console.error('Error deleting card:', err)
+        await deleteTaskLog(card.id, card.date, groupId, onTaskDataChange)
+      } catch {
         alert('Failed to delete task')
       }
     },
@@ -1056,24 +1081,19 @@ export default function TodoKanbanView({
       position: 'before' | 'after',
       targetDone?: boolean,
     ) => {
+      if (!groupId) return
+
       try {
-        if (!groupId) return
-
-        // Call moveTaskLog API
-        await moveTaskLog({
-          logId: sourceLogId,
-          fromDate: sourceDate,
-          toDate: targetDate,
-          toDone: Boolean(targetDone),
-          targetLogId: targetLogId === -1 ? undefined : targetLogId,
+        await reorderTaskLog(
+          groupId,
+          sourceLogId,
+          targetDate,
+          sourceDate,
+          targetLogId,
           position,
-        })
-
-        // Refresh the data to reflect the new order
-        const updatedGroup = await fetchGroupTasks(groupId)
-        if (updatedGroup) {
-          onTaskDataChange([updatedGroup])
-        }
+          Boolean(targetDone),
+          onTaskDataChange,
+        )
       } catch (err) {
         console.error('Error reordering cards:', err)
       }
@@ -1081,20 +1101,25 @@ export default function TodoKanbanView({
     [groupId, onTaskDataChange],
   )
 
-  const handleAddTask = useCallback(
-    async (date: string, done: boolean, taskText: string) => {
+  // Handle dropping a pinned task into the kanban board
+  const handleAddFromPinCallback = useCallback(
+    async (
+      date: string,
+      targetLogId: number,
+      position: 'before' | 'after',
+      isDoneColumn: boolean,
+      pin: { taskId: number; extraInfo?: string },
+    ) => {
       if (!groupId) return
-      try {
-        await createTaskAndAddToGroup(
-          groupId,
-          taskText,
-          date,
-          done,
-          onTaskDataChange,
-        )
-      } catch (err) {
-        alert((err as Error).message)
-      }
+      await handleAddFromPin(
+        date,
+        targetLogId,
+        position,
+        isDoneColumn,
+        pin,
+        groupId,
+        onTaskDataChange,
+      )
     },
     [groupId, onTaskDataChange],
   )
@@ -1119,87 +1144,25 @@ export default function TodoKanbanView({
       done: boolean,
       reset: () => void,
     ) => {
-      if (!selectedTask && inputValue) {
-        await handleAddTask(date, done, inputValue)
-        reset()
-        return
-      }
+      if (!groupId) return
 
-      reset()
-      if (!selectedTask) return
-
-      // Check if input has custom extra info for this task
-      const { extraInfo: inputExtraInfo } = parseTaskWithExtraInfo(inputValue)
-      const extraInfoToUse =
-        inputExtraInfo || selectedTask.defaultExtraInfo || undefined
-
-      // Add the task using existing addTaskToCell logic
       try {
-        const log = await setTaskLog(
-          selectedTask.id,
+        await handleTaskSelection(
+          selectedTask,
+          inputValue,
           date,
           done,
-          extraInfoToUse,
+          groupId,
+          allTasks,
+          onTaskDataChange,
         )
-
-        // Update local state
-        onTaskDataChange((prev) => {
-          const copy = [...prev]
-          if (!copy[0]) return copy
-          const group = { ...copy[0] }
-          const existingIdx = group.tasks.findIndex(
-            (t) => t.id === selectedTask.id,
-          )
-          if (existingIdx >= 0) {
-            const t = { ...group.tasks[existingIdx] }
-            const recs = [...t.records]
-            const idx = recs.findIndex((r) => r.id === log.id)
-            if (idx >= 0) {
-              recs[idx] = {
-                ...recs[idx],
-                done: log.done,
-                extraInfo: log.extraInfo || undefined,
-                sortOrder: log.sortOrder,
-              }
-            } else {
-              recs.push({
-                id: log.id,
-                date: log.date,
-                done: log.done,
-                extraInfo: log.extraInfo || undefined,
-                sortOrder: log.sortOrder,
-              })
-            }
-            t.records = recs
-            group.tasks[existingIdx] = t
-          } else {
-            // Shouldn't happen but handle gracefully
-            group.tasks = [
-              ...group.tasks,
-              {
-                id: selectedTask.id,
-                task: selectedTask.task,
-                defaultExtraInfo: selectedTask.defaultExtraInfo,
-                records: [
-                  {
-                    id: log.id,
-                    date: log.date,
-                    done: log.done,
-                    extraInfo: log.extraInfo || undefined,
-                    sortOrder: log.sortOrder,
-                  },
-                ],
-              },
-            ]
-          }
-          copy[0] = group
-          return copy
-        })
+        reset()
       } catch (err) {
-        console.error('Error adding task to cell:', err)
+        console.error('Error handling task selection:', err)
+        alert((err as Error).message)
       }
     },
-    [handleAddTask, onTaskDataChange],
+    [groupId, onTaskDataChange, allTasks],
   )
 
   if (loading) {
@@ -1220,6 +1183,7 @@ export default function TodoKanbanView({
           onCardDelete={deleteCard}
           onCardStatusToggle={toggleCardStatus}
           onCardReorder={handleCardReorder}
+          onAddFromPin={handleAddFromPinCallback}
           onTaskSelect={handleTaskSelect}
           availableTasks={allTasks}
           filterQuery={filterQuery}
@@ -1228,6 +1192,8 @@ export default function TodoKanbanView({
           onEditChange={handleEditChange}
           onEditSave={handleEditSave}
           onEditCancel={handleEditCancel}
+          groupId={groupId}
+          onTaskDataChange={onTaskDataChange}
         />
         <KanbanColumn
           title="DONE"
@@ -1236,6 +1202,7 @@ export default function TodoKanbanView({
           onCardDelete={deleteCard}
           onCardStatusToggle={toggleCardStatus}
           onCardReorder={handleCardReorder}
+          onAddFromPin={handleAddFromPinCallback}
           onTaskSelect={handleTaskSelect}
           availableTasks={allTasks}
           filterQuery={filterQuery}
@@ -1244,6 +1211,8 @@ export default function TodoKanbanView({
           onEditChange={handleEditChange}
           onEditSave={handleEditSave}
           onEditCancel={handleEditCancel}
+          groupId={groupId}
+          onTaskDataChange={onTaskDataChange}
         />
       </div>
     </div>

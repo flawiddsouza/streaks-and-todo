@@ -264,6 +264,25 @@
   transition: all 0.2s;
 }
 
+.kanban-card-copy-btn {
+  background: transparent;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
 .kanban-card-edit-btn {
   background: transparent;
   border: none;
@@ -284,6 +303,7 @@
 }
 
 .kanban-card:hover .kanban-card-delete-btn,
+.kanban-card:hover .kanban-card-copy-btn,
 .kanban-card:hover .kanban-card-edit-btn {
   opacity: 1;
 }
@@ -291,6 +311,11 @@
 .kanban-card-delete-btn:hover {
   background: #ffebee;
   color: #d32f2f;
+}
+
+.kanban-card-copy-btn:hover {
+  background: #f3e5f5;
+  color: #7b1fa2;
 }
 
 .kanban-card-edit-btn:hover {

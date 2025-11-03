@@ -16,10 +16,21 @@ import {
   tasksTable,
 } from './db/schema'
 
-// View mode helpers: 0 = table, 1 = kanban
-const toViewModeString = (mode: number | null | undefined) =>
-  mode === 1 ? 'kanban' : mode === 0 ? 'table' : undefined
-const toViewModeNumber = (mode: string) => (mode === 'kanban' ? 1 : 0)
+// View mode helpers: 0 = table, 1 = kanban, 2 = calendar
+const toViewModeString = (
+  mode: number | null | undefined,
+): 'table' | 'kanban' | 'calendar' | undefined => {
+  if (mode === 0) return 'table'
+  if (mode === 1) return 'kanban'
+  if (mode === 2) return 'calendar'
+  return undefined
+}
+
+const toViewModeNumber = (mode: string): number => {
+  if (mode === 'calendar') return 2
+  if (mode === 'kanban') return 1
+  return 0
+}
 
 // Authentication: each route validates session and derives userId (no global mutable store usage).
 
@@ -1202,7 +1213,7 @@ const api = new Elysia({ prefix: '/api' })
               const groupIdNum = parseInt(groupId)
               const { name, viewMode } = body as {
                 name?: string
-                viewMode?: 'table' | 'kanban'
+                viewMode?: 'table' | 'kanban' | 'calendar'
               }
 
               if (Number.isNaN(groupIdNum)) {
