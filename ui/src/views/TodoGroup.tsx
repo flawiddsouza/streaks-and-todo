@@ -262,10 +262,14 @@ export default function TodoGroup() {
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => setShowSettings(true)}
-                style={{ marginRight: '12px' }}
+                style={{
+                  marginRight: '12px',
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                }}
                 title="Settings"
               >
-                ⚙️
+                Settings
               </button>
               <button
                 type="button"
