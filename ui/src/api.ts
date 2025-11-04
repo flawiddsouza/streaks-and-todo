@@ -36,6 +36,7 @@ export interface ApiTaskLog {
 export interface ApiStreak {
   id: number
   name: string
+  notificationsEnabled?: boolean
   logs: ApiStreakLog[]
   sortOrder: number
   tasks?: ApiTask[]
@@ -109,6 +110,7 @@ export interface TaskRecord {
 export interface StreakItem {
   id: number
   name: string
+  notificationsEnabled?: boolean
   records: StreakRecord[]
 }
 
@@ -175,6 +177,7 @@ export const fetchGroupStreaks = async (
       streaks: data.streaks.map((streak) => ({
         id: streak.id,
         name: streak.name,
+        notificationsEnabled: streak.notificationsEnabled,
         records: streak.logs.map((log) => {
           const addedByTasks = (streak.tasks || []).flatMap((t) =>
             t.logs
@@ -839,4 +842,135 @@ export const moveTaskLog = async (payload: {
   }
   const data = await response.json()
   return data.log
+}
+
+// Notification Settings API
+
+export interface NotificationSettings {
+  enabled: boolean
+  morningTime: string
+  eveningTime: string
+  upcomingTasksTime: string
+  upcomingTasksDays: number
+  timezone: string
+  channels: {
+    email?: {
+      enabled: boolean
+    }
+    ntfy?: {
+      enabled: boolean
+      server: string
+      topic: string
+      token?: string
+    }
+    webhook?: {
+      enabled: boolean
+      url: string
+      secret: string
+    }
+  }
+}
+
+export interface NotificationDeliveryLog {
+  id: number
+  type: string
+  channel: string
+  status: string
+  error?: string | null
+  sentAt: string
+}
+
+export const getUserNotificationSettings =
+  async (): Promise<NotificationSettings> => {
+    const response = await apiFetch('/user/notification-settings')
+    if (!response.ok) {
+      let message = 'Failed to fetch notification settings'
+      try {
+        const err = await response.json()
+        message = err.message || message
+        console.error('getUserNotificationSettings error:', err)
+      } catch {}
+      throw new Error(message)
+    }
+    const data = await response.json()
+    return data.settings
+  }
+
+export const updateNotificationSettings = async (
+  settings: Partial<NotificationSettings>,
+): Promise<NotificationSettings> => {
+  const response = await apiFetch('/user/notification-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!response.ok) {
+    let message = 'Failed to update notification settings'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('updateNotificationSettings error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return data.settings
+}
+
+export const sendTestNotification = async (
+  type?: 'morning' | 'evening' | 'upcoming',
+): Promise<void> => {
+  const response = await apiFetch('/test-notification', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type }),
+  })
+  if (!response.ok) {
+    let message = 'Failed to send test notification'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('sendTestNotification error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+}
+
+export const getNotificationDeliveries = async (): Promise<
+  NotificationDeliveryLog[]
+> => {
+  const response = await apiFetch('/user/notification-deliveries')
+  if (!response.ok) {
+    let message = 'Failed to fetch notification deliveries'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('getNotificationDeliveries error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return (data.deliveries || []) as NotificationDeliveryLog[]
+}
+
+export const updateStreakNotifications = async (
+  streakId: number,
+  enabled: boolean,
+): Promise<ApiStreak> => {
+  const response = await apiFetch(`/streaks/${streakId}/notifications`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!response.ok) {
+    let message = 'Failed to update streak notifications'
+    try {
+      const err = await response.json()
+      message = err.message || message
+      console.error('updateStreakNotifications error:', err)
+    } catch {}
+    throw new Error(message)
+  }
+  const data = await response.json()
+  return data.streak
 }

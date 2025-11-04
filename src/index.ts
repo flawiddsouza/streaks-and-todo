@@ -5,16 +5,26 @@ import { type Context, Elysia, sse } from 'elysia'
 import { auth } from './auth'
 import { config } from './config'
 import { db } from './db'
+import { usersTable } from './db/auth-schema'
 import {
   groupNotesTable,
   groupPinsTable,
   groupsTable,
+  notificationDeliveriesTable,
   streakGroupsTable,
   streakLogTable,
   streaksTable,
   taskLogTable,
   tasksTable,
+  userNotificationSettingsTable,
 } from './db/schema'
+import { notificationScheduler } from './jobs/notification-scheduler'
+import {
+  type EveningStreaksPayload,
+  type MorningTasksPayload,
+  notificationService,
+  type UpcomingTasksPayload,
+} from './services/notification-service'
 
 // View mode helpers: 0 = table, 1 = kanban, 2 = calendar
 const toViewModeString = (
@@ -941,6 +951,342 @@ const api = new Elysia({ prefix: '/api' })
             }
           },
         )
+        .patch(
+          '/streaks/:streakId/notifications',
+          async ({ params: { streakId }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const streakIdNum = parseInt(streakId)
+              const { enabled } = body as { enabled: boolean }
+
+              if (Number.isNaN(streakIdNum)) {
+                return status(400, { message: 'Invalid streak ID' })
+              }
+
+              if (typeof enabled !== 'boolean') {
+                return status(400, { message: 'enabled must be a boolean' })
+              }
+
+              const [updated] = await db
+                .update(streaksTable)
+                .set({ notificationsEnabled: enabled })
+                .where(
+                  and(
+                    eq(streaksTable.id, streakIdNum),
+                    eq(streaksTable.userId, userId),
+                  ),
+                )
+                .returning()
+
+              if (!updated) {
+                return status(404, { message: 'Streak not found' })
+              }
+
+              broadcast(userId, {
+                type: 'streak.meta.updated',
+                streakId: streakIdNum,
+              })
+
+              return { streak: updated }
+            } catch (err) {
+              console.error('Error updating streak notifications:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get('/user/notification-settings', async ({ status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+
+            const settings = await db
+              .select()
+              .from(userNotificationSettingsTable)
+              .where(eq(userNotificationSettingsTable.userId, userId))
+              .limit(1)
+
+            if (settings.length === 0) {
+              // Return default settings if none exist
+              return {
+                settings: {
+                  userId,
+                  enabled: true,
+                  channels: {},
+                  morningTime: '09:00',
+                  eveningTime: '20:00',
+                  upcomingTasksTime: '09:00',
+                  upcomingTasksDays: 7,
+                  timezone: 'UTC',
+                },
+              }
+            }
+
+            return { settings: settings[0] }
+          } catch (err) {
+            console.error('Error fetching notification settings:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .get('/user/notification-deliveries', async ({ status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+
+            const deliveries = await db
+              .select({
+                id: notificationDeliveriesTable.id,
+                type: notificationDeliveriesTable.type,
+                channel: notificationDeliveriesTable.channel,
+                status: notificationDeliveriesTable.status,
+                error: notificationDeliveriesTable.error,
+                sentAt: notificationDeliveriesTable.sentAt,
+              })
+              .from(notificationDeliveriesTable)
+              .where(eq(notificationDeliveriesTable.userId, userId))
+              .orderBy(desc(notificationDeliveriesTable.sentAt))
+              .limit(50)
+
+            return {
+              deliveries: deliveries.map((delivery) => ({
+                ...delivery,
+                sentAt: delivery.sentAt.toISOString(),
+              })),
+            }
+          } catch (err) {
+            console.error('Error fetching notification deliveries:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .put('/user/notification-settings', async ({ body, status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const { enabled, channels, morningTime, eveningTime, timezone } =
+              body as {
+                enabled?: boolean
+                channels?: unknown
+                morningTime?: string
+                eveningTime?: string
+                timezone?: string
+              }
+
+            // Validate time format (HH:MM)
+            const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/
+            if (morningTime && !timeRegex.test(morningTime)) {
+              return status(400, {
+                message: 'Invalid morningTime format (use HH:MM)',
+              })
+            }
+            if (eveningTime && !timeRegex.test(eveningTime)) {
+              return status(400, {
+                message: 'Invalid eveningTime format (use HH:MM)',
+              })
+            }
+
+            const existing = await db
+              .select()
+              .from(userNotificationSettingsTable)
+              .where(eq(userNotificationSettingsTable.userId, userId))
+              .limit(1)
+
+            if (existing.length === 0) {
+              // Insert new settings
+              const [inserted] = await db
+                .insert(userNotificationSettingsTable)
+                .values({
+                  userId,
+                  enabled: enabled ?? true,
+                  channels: channels || {},
+                  morningTime: morningTime || '09:00',
+                  eveningTime: eveningTime || '20:00',
+                  timezone: timezone || 'UTC',
+                })
+                .returning()
+
+              return { settings: inserted }
+            } else {
+              // Update existing settings
+              const [updated] = await db
+                .update(userNotificationSettingsTable)
+                .set({
+                  enabled: enabled ?? existing[0].enabled,
+                  channels:
+                    channels !== undefined ? channels : existing[0].channels,
+                  morningTime: morningTime || existing[0].morningTime,
+                  eveningTime: eveningTime || existing[0].eveningTime,
+                  timezone: timezone || existing[0].timezone,
+                  updatedAt: new Date(),
+                })
+                .where(eq(userNotificationSettingsTable.userId, userId))
+                .returning()
+
+              return { settings: updated }
+            }
+          } catch (err) {
+            console.error('Error updating notification settings:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .post('/test-notification', async ({ body, status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const { type } = body as {
+              type?: 'morning' | 'evening' | 'upcoming'
+            }
+
+            // Get user email and settings
+            const user = await db
+              .select()
+              .from(usersTable)
+              .where(eq(usersTable.id, userId))
+              .limit(1)
+
+            if (user.length === 0) {
+              return status(404, { message: 'User not found' })
+            }
+
+            const settingsResult = await db
+              .select()
+              .from(userNotificationSettingsTable)
+              .where(eq(userNotificationSettingsTable.userId, userId))
+              .limit(1)
+
+            if (settingsResult.length === 0) {
+              return status(400, {
+                message:
+                  'Notification settings not configured. Please save settings first.',
+              })
+            }
+
+            const settings = settingsResult[0]
+            const userEmail = user[0].email
+            const today = new Date().toISOString().split('T')[0]
+
+            // Create test payload using the same helpers as the scheduler
+            let testPayload:
+              | MorningTasksPayload
+              | EveningStreaksPayload
+              | UpcomingTasksPayload
+
+            if (type === 'morning' || !type) {
+              // Build realistic morning tasks payload
+              testPayload = notificationScheduler.buildMorningTasksPayload(
+                userId,
+                userEmail,
+                today,
+                [
+                  {
+                    id: 1,
+                    task: 'Review project documentation',
+                    groupId: 1,
+                    groupName: 'Work',
+                    extraInfo: '2 hours',
+                    sortOrder: 1,
+                  },
+                  {
+                    id: 2,
+                    task: 'Morning workout',
+                    groupId: 2,
+                    groupName: 'Health',
+                    extraInfo: null,
+                    sortOrder: 2,
+                  },
+                  {
+                    id: 3,
+                    task: 'Team standup meeting',
+                    groupId: 1,
+                    groupName: 'Work',
+                    extraInfo: '9:00 AM',
+                    sortOrder: 3,
+                  },
+                ],
+              )
+            } else if (type === 'evening') {
+              // Build realistic evening streaks payload
+              testPayload = notificationScheduler.buildEveningStreaksPayload(
+                userId,
+                userEmail,
+                today,
+                [
+                  {
+                    id: 1,
+                    name: 'Daily Exercise',
+                    currentCount: 7,
+                    groupId: 1,
+                    groupName: 'Health',
+                  },
+                  {
+                    id: 2,
+                    name: 'Read for 30 minutes',
+                    currentCount: 3,
+                    groupId: 2,
+                    groupName: 'Personal Development',
+                  },
+                  {
+                    id: 3,
+                    name: 'Practice guitar',
+                    currentCount: 12,
+                    groupId: null,
+                    groupName: null,
+                  },
+                ],
+              )
+            } else {
+              // Build realistic upcoming tasks payload
+              const tomorrow = new Date()
+              tomorrow.setDate(tomorrow.getDate() + 1)
+              const in3days = new Date()
+              in3days.setDate(in3days.getDate() + 3)
+              const in5days = new Date()
+              in5days.setDate(in5days.getDate() + 5)
+
+              testPayload = notificationScheduler.buildUpcomingTasksPayload(
+                userId,
+                userEmail,
+                today,
+                settings.upcomingTasksDays,
+                [
+                  {
+                    id: 1,
+                    task: 'Client presentation',
+                    date: tomorrow.toISOString().split('T')[0],
+                    daysUntil: 1,
+                    groupId: 1,
+                    groupName: 'Work',
+                    extraInfo: '2:00 PM - Conference Room A',
+                  },
+                  {
+                    id: 2,
+                    task: 'Dentist appointment',
+                    date: in3days.toISOString().split('T')[0],
+                    daysUntil: 3,
+                    groupId: 2,
+                    groupName: 'Personal',
+                    extraInfo: '10:30 AM',
+                  },
+                  {
+                    id: 3,
+                    task: 'Project deadline',
+                    date: in5days.toISOString().split('T')[0],
+                    daysUntil: 5,
+                    groupId: 1,
+                    groupName: 'Work',
+                    extraInfo: null,
+                  },
+                ],
+              )
+            }
+
+            await notificationService.sendNotification(
+              userId,
+              userEmail,
+              settings,
+              testPayload,
+            )
+
+            return { message: 'Test notification sent successfully' }
+          } catch (err) {
+            console.error('Error sending test notification:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
         .post(
           '/groups/:groupId/streaks',
           async ({ params: { groupId }, body, status, store }) => {
@@ -2742,3 +3088,6 @@ const app = new Elysia()
 console.log(
   `🦊 Elysia is running at http://${app.server?.hostname}:${app.server?.port}`,
 )
+
+// Start notification scheduler
+notificationScheduler.start()

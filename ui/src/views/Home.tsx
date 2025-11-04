@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { authClient } from '../auth-client'
+import NotificationSettingsModal from '../components/NotificationSettingsModal'
 
 interface SessionData {
   user: { id: string; email: string; name: string }
@@ -75,6 +76,7 @@ function SessionBar({
 export default function Home() {
   // Single session fetch for page & session bar
   const { session, loading } = useAuthSession()
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false)
   return (
     <div className="page">
       <div className="page-nav">
@@ -83,7 +85,19 @@ export default function Home() {
             <span style={{ visibility: 'hidden' }}>Take Space</span>
           </Link>
         </div>
-        <div className="nav-right">
+        <div
+          className="nav-right"
+          style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+        >
+          {session && !loading && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowNotificationsModal(true)}
+            >
+              Notification Settings
+            </button>
+          )}
           <SessionBar session={session} loading={loading} />
         </div>
       </div>
@@ -198,6 +212,11 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <NotificationSettingsModal
+        isOpen={showNotificationsModal}
+        onClose={() => setShowNotificationsModal(false)}
+      />
     </div>
   )
 }

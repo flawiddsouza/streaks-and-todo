@@ -21,6 +21,9 @@ export const streaksTable = pgTable('streaks', {
     .references(() => usersTable.id)
     .notNull(),
   name: varchar({ length: 255 }).notNull(),
+  notificationsEnabled: boolean('notifications_enabled')
+    .default(false)
+    .notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -135,4 +138,52 @@ export const groupPinsTable = pgTable('group_pins', {
   sortOrder: integer('sort_order').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+export const userNotificationSettingsTable = pgTable(
+  'user_notification_settings',
+  {
+    userId: text('user_id')
+      .primaryKey()
+      .references(() => usersTable.id)
+      .notNull(),
+    enabled: boolean().default(true).notNull(),
+    channels: json('channels').$type<{
+      email?: {
+        enabled: boolean
+        address?: string // Optional override, defaults to user.email
+      }
+      ntfy?: {
+        enabled: boolean
+        server: string // e.g., "https://ntfy.sh"
+        topic: string // e.g., "mytasks-user123"
+        token?: string // Optional bearer token for protected topics
+      }
+      webhook?: {
+        enabled: boolean
+        url: string
+        secret?: string // For HMAC signature verification
+      }
+    }>(),
+    morningTime: text('morning_time').default('09:00').notNull(), // HH:MM format
+    eveningTime: text('evening_time').default('20:00').notNull(), // HH:MM format
+    upcomingTasksTime: text('upcoming_tasks_time').default('09:00').notNull(), // HH:MM format
+    upcomingTasksDays: integer('upcoming_tasks_days').default(7).notNull(), // Days ahead to check
+    timezone: text().default('UTC').notNull(), // IANA timezone, e.g., "America/New_York"
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+)
+
+export const notificationDeliveriesTable = pgTable('notification_deliveries', {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
+  type: text().notNull(), // 'morning_tasks' or 'evening_streaks'
+  channel: text().notNull(), // 'email', 'ntfy', 'webhook'
+  status: text().notNull(), // 'sent', 'failed'
+  error: text(), // Error message if failed
+  payload: json('payload'), // The notification payload that was sent
+  sentAt: timestamp('sent_at', { withTimezone: true }).defaultNow().notNull(),
 })

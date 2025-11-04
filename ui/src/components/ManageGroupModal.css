@@ -30,6 +30,33 @@
   border-radius: 4px;
 }
 
+.streak-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.notification-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #6c757d;
+  cursor: pointer;
+  user-select: none;
+}
+
+.notification-toggle input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.notification-label {
+  font-weight: normal;
+}
+
 .streak-name {
   font-weight: 500;
 }

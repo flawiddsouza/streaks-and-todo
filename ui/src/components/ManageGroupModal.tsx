@@ -2,6 +2,7 @@ import type { ApiStreak, StreakGroup } from '../api'
 import Modal from './Modal'
 import './ManageGroupModal.css'
 import { useState } from 'react'
+import { updateStreakNotifications } from '../api'
 
 interface ManageGroupModalProps {
   isOpen: boolean
@@ -12,6 +13,7 @@ interface ManageGroupModalProps {
   onAddStreak: (streakId: number) => Promise<void>
   onReorderStreak: (fromIndex: number, toIndex: number) => Promise<void>
   onCreateStreak: (name: string) => Promise<void>
+  onUpdateStreak?: (streakId: number, updates: Partial<ApiStreak>) => void
 }
 
 export default function ManageGroupModal({
@@ -23,6 +25,7 @@ export default function ManageGroupModal({
   onAddStreak,
   onReorderStreak,
   onCreateStreak,
+  onUpdateStreak,
 }: ManageGroupModalProps) {
   const [newStreakName, setNewStreakName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
@@ -46,6 +49,22 @@ export default function ManageGroupModal({
     }
   }
 
+  const handleToggleNotifications = async (
+    streakId: number,
+    currentValue: boolean,
+  ) => {
+    try {
+      const updated = await updateStreakNotifications(streakId, !currentValue)
+      if (onUpdateStreak) {
+        onUpdateStreak(streakId, {
+          notificationsEnabled: updated.notificationsEnabled,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to toggle notifications:', error)
+    }
+  }
+
   return (
     <Modal
       isOpen={isOpen}
@@ -58,7 +77,23 @@ export default function ManageGroupModal({
         <div className="streak-list">
           {group.streaks.map((streak, index) => (
             <div key={streak.id} className="streak-item">
-              <span className="streak-name">{streak.name}</span>
+              <div className="streak-info">
+                <span className="streak-name">{streak.name}</span>
+                <label className="notification-toggle">
+                  <input
+                    type="checkbox"
+                    checked={streak.notificationsEnabled || false}
+                    onChange={() =>
+                      handleToggleNotifications(
+                        streak.id,
+                        streak.notificationsEnabled || false,
+                      )
+                    }
+                    title="Enable evening reminders if incomplete"
+                  />
+                  <span className="notification-label">🔔 Reminders</span>
+                </label>
+              </div>
               <div className="streak-actions">
                 <button
                   type="button"

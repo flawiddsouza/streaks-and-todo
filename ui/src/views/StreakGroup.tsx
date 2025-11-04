@@ -140,6 +140,31 @@ export default function Group() {
     }
   }
 
+  const handleUpdateStreak = (
+    streakId: number,
+    updates: Partial<ApiStreak>,
+  ) => {
+    // Update local state for managing group
+    if (managingGroup) {
+      setManagingGroup({
+        ...managingGroup,
+        streaks: managingGroup.streaks.map((streak) =>
+          streak.id === streakId ? { ...streak, ...updates } : streak,
+        ),
+      })
+    }
+
+    // Update the main streak data
+    setStreakData((prev) =>
+      prev.map((group) => ({
+        ...group,
+        streaks: group.streaks.map((streak) =>
+          streak.id === streakId ? { ...streak, ...updates } : streak,
+        ),
+      })),
+    )
+  }
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -261,6 +286,7 @@ export default function Group() {
         onAddStreak={handleAddStreak}
         onReorderStreak={handleReorderStreak}
         onCreateStreak={handleCreateStreak}
+        onUpdateStreak={handleUpdateStreak}
       />
     </div>
   )
