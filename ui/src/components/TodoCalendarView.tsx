@@ -689,14 +689,26 @@ export default function TodoCalendarView({
   } | null>(null)
   const [editValue, setEditValue] = useState('')
   const calendarGridRef = useRef<HTMLDivElement>(null)
+  const todayCellRef = useRef<HTMLDivElement>(null)
 
-  // Reset scroll position when view mode changes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: We intentionally want to reset scroll when viewMode changes
+  // Scroll to today when view changes or loads, or reset to top if today isn't visible
+  // biome-ignore lint/correctness/useExhaustiveDependencies: We intentionally want to scroll when viewMode, currentMonth, or currentWeek changes
   useEffect(() => {
-    if (calendarGridRef.current) {
-      calendarGridRef.current.scrollTop = 0
-    }
-  }, [viewMode])
+    // Use setTimeout to ensure the DOM has updated
+    setTimeout(() => {
+      if (todayCellRef.current) {
+        // Today is in the current view - scroll to it
+        todayCellRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+          inline: 'start',
+        })
+      } else if (calendarGridRef.current) {
+        // Today is not in the current view - reset to top
+        calendarGridRef.current.scrollTop = 0
+      }
+    }, 100)
+  }, [viewMode, currentMonth, currentWeek])
 
   const allTasks = useMemo(() => {
     return taskData.flatMap((group) =>
@@ -975,10 +987,6 @@ export default function TodoCalendarView({
     } else {
       setCurrentMonth(currentMonth.subtract(1, 'month'))
     }
-    // Reset scroll position
-    if (calendarGridRef.current) {
-      calendarGridRef.current.scrollTop = 0
-    }
   }
 
   const goToNextMonth = () => {
@@ -987,20 +995,12 @@ export default function TodoCalendarView({
     } else {
       setCurrentMonth(currentMonth.add(1, 'month'))
     }
-    // Reset scroll position
-    if (calendarGridRef.current) {
-      calendarGridRef.current.scrollTop = 0
-    }
   }
 
   const goToToday = () => {
     const today = dayjs()
     setCurrentMonth(today)
     setCurrentWeek(today)
-    // Reset scroll position
-    if (calendarGridRef.current) {
-      calendarGridRef.current.scrollTop = 0
-    }
   }
 
   if (loading) {
@@ -1095,6 +1095,7 @@ export default function TodoCalendarView({
             return (
               <div
                 key={day.date}
+                ref={day.isToday ? todayCellRef : null}
                 className={`calendar-day ${day.isCurrentMonth ? '' : 'other-month'} ${day.isToday ? 'today' : ''}`}
               >
                 <div className="calendar-day-header">
