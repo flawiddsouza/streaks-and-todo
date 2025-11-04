@@ -6,6 +6,9 @@ import {
   updateGroup,
   updateTask,
 } from '../api'
+import GroupSettingsModal, {
+  type GroupSettings,
+} from '../components/GroupSettingsModal'
 import ManageTasksModal from '../components/ManageTasksModal'
 import PinnedTasks from '../components/PinnedTasks'
 import TodoCalendarView from '../components/TodoCalendarView'
@@ -19,11 +22,13 @@ export default function TodoGroup() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showManageTasks, setShowManageTasks] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [filterQuery, setFilterQuery] = useState('')
   const [filteredCount, setFilteredCount] = useState(0)
   const [viewMode, setViewMode] = useState<
     'table' | 'kanban' | 'calendar' | undefined
   >(undefined)
+  const [settings, setSettings] = useState<GroupSettings>({})
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   const handleTitleChange = async (
@@ -63,6 +68,17 @@ export default function TodoGroup() {
     document.execCommand('insertText', false, cleanPaste)
   }
 
+  const handleSettingsChange = async (newSettings: GroupSettings) => {
+    setSettings(newSettings)
+    if (groupId) {
+      try {
+        await updateGroup(parseInt(groupId, 10), { settings: newSettings })
+      } catch (err) {
+        console.error('Failed to save settings:', err)
+      }
+    }
+  }
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -84,6 +100,8 @@ export default function TodoGroup() {
             }
             // Set view mode from group data, defaulting to 'table'
             setViewMode(taskGroup.viewMode || 'table')
+            // Set settings from group data
+            setSettings(taskGroup.settings || {})
           } else {
             setError('Group not found')
           }
@@ -242,6 +260,15 @@ export default function TodoGroup() {
               </div>
               <button
                 type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowSettings(true)}
+                style={{ marginRight: '12px' }}
+                title="Settings"
+              >
+                ⚙️
+              </button>
+              <button
+                type="button"
                 className="btn btn-primary"
                 onClick={() => setShowManageTasks(true)}
               >
@@ -273,6 +300,7 @@ export default function TodoGroup() {
           groupId={groupId ? parseInt(groupId, 10) : undefined}
           filterQuery={filterQuery}
           onFilteredCountChange={setFilteredCount}
+          settings={settings}
         />
       ) : viewMode === 'kanban' ? (
         <TodoKanbanView
@@ -301,6 +329,14 @@ export default function TodoGroup() {
           onRefresh={(updated) => setTaskData([updated])}
         />
       )}
+
+      <GroupSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        group={taskData[0] ?? null}
+        settings={settings}
+        onSettingsChange={handleSettingsChange}
+      />
 
       <ManageTasksModal
         isOpen={showManageTasks}

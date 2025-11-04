@@ -3,6 +3,7 @@ import {
   boolean,
   date,
   integer,
+  json,
   pgEnum,
   pgTable,
   smallint,
@@ -49,6 +50,11 @@ export const groupsTable = pgTable('groups', {
   type: groupTypeEnum().notNull(),
   sortOrder: integer('sort_order').notNull(),
   viewMode: smallint('view_mode'), // 0 = table, 1 = kanban, 2 = calendar
+  settings: json('settings').$type<{
+    table?: { showOnlyDaysUntilToday?: boolean }
+    kanban?: Record<string, unknown>
+    calendar?: Record<string, unknown>
+  }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

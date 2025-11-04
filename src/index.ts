@@ -1211,9 +1211,14 @@ const api = new Elysia({ prefix: '/api' })
             try {
               const { userId } = store as AuthedStore
               const groupIdNum = parseInt(groupId)
-              const { name, viewMode } = body as {
+              const { name, viewMode, settings } = body as {
                 name?: string
                 viewMode?: 'table' | 'kanban' | 'calendar'
+                settings?: {
+                  table?: { showOnlyDaysUntilToday?: boolean }
+                  kanban?: Record<string, unknown>
+                  calendar?: Record<string, unknown>
+                }
               }
 
               if (Number.isNaN(groupIdNum)) {
@@ -1224,6 +1229,11 @@ const api = new Elysia({ prefix: '/api' })
               const updateData: {
                 name?: string
                 viewMode?: number | null
+                settings?: {
+                  table?: { showOnlyDaysUntilToday?: boolean }
+                  kanban?: Record<string, unknown>
+                  calendar?: Record<string, unknown>
+                }
               } = {}
 
               if (name !== undefined) {
@@ -1256,6 +1266,10 @@ const api = new Elysia({ prefix: '/api' })
 
               if (viewMode !== undefined) {
                 updateData.viewMode = toViewModeNumber(viewMode)
+              }
+
+              if (settings !== undefined) {
+                updateData.settings = settings
               }
 
               // Only update if there's something to update

@@ -57,6 +57,11 @@ export interface ApiGroup {
   type: 'streaks' | 'tasks'
   sortOrder: number
   viewMode?: 'table' | 'kanban' | 'calendar'
+  settings?: {
+    table?: { showOnlyDaysUntilToday?: boolean }
+    kanban?: Record<string, unknown>
+    calendar?: Record<string, unknown>
+  }
 }
 
 export interface ApiStreakGroupResponse {
@@ -125,6 +130,11 @@ export interface TaskGroup {
   id: number
   name: string
   viewMode?: 'table' | 'kanban' | 'calendar'
+  settings?: {
+    table?: { showOnlyDaysUntilToday?: boolean }
+    kanban?: Record<string, unknown>
+    calendar?: Record<string, unknown>
+  }
   tasks: TaskItem[]
   notes?: { date: string; note: string }[]
   pins?: {
@@ -208,6 +218,7 @@ export const fetchGroupTasks = async (
       id: data.group.id,
       name: data.group.name,
       viewMode: data.group.viewMode,
+      settings: data.group.settings,
       tasks: data.tasks.map((task) => ({
         id: task.id,
         task: task.task,
@@ -664,7 +675,15 @@ export const deleteGroup = async (groupId: number): Promise<void> => {
 
 export const updateGroup = async (
   groupId: number,
-  updates: { name?: string; viewMode?: 'table' | 'kanban' | 'calendar' },
+  updates: {
+    name?: string
+    viewMode?: 'table' | 'kanban' | 'calendar'
+    settings?: {
+      table?: { showOnlyDaysUntilToday?: boolean }
+      kanban?: Record<string, unknown>
+      calendar?: Record<string, unknown>
+    }
+  },
 ): Promise<ApiGroup> => {
   const response = await apiFetch(`/groups/${groupId}`, {
     method: 'PUT',

@@ -23,6 +23,7 @@ import {
   type TaskRecord,
   updateGroupNote,
 } from '../api'
+import type { GroupSettings } from './GroupSettingsModal'
 import './TodoGroupTable.css'
 import { formatTaskWithExtraInfo } from '../helpers'
 import {
@@ -43,6 +44,7 @@ interface TodoGroupTableProps {
   groupId?: number
   filterQuery?: string
   onFilteredCountChange?: (count: number) => void
+  settings: GroupSettings
 }
 
 interface TaskLog {
@@ -746,6 +748,7 @@ export default function TodoGroupTable({
   groupId,
   filterQuery = '',
   onFilteredCountChange,
+  settings,
 }: TodoGroupTableProps) {
   // Input state is now managed locally inside TaskColumn to avoid caret jumps
   const [editingTask, setEditingTask] = useState<{
@@ -845,8 +848,14 @@ export default function TodoGroupTable({
       })
     }
 
+    // Apply date filtering based on settings
+    if (settings.table?.showOnlyDaysUntilToday) {
+      const today = dayjs().format('YYYY-MM-DD')
+      return rows.filter((row) => row.date <= today)
+    }
+
     return rows
-  }, [allTasks, dateNoteMap, filterQuery])
+  }, [allTasks, dateNoteMap, filterQuery, settings])
 
   // Keep previous filterQuery to detect clearing of the filter
   const prevFilterRef = useRef<string>(filterQuery)
