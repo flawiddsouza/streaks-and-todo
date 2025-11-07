@@ -6,6 +6,7 @@ import {
   updateGroup,
   updateTask,
 } from '../api'
+import FloatingTasksSidebar from '../components/FloatingTasksSidebar'
 import GroupSettingsModal, {
   type GroupSettings,
 } from '../components/GroupSettingsModal'
@@ -14,11 +15,12 @@ import PinnedTasks from '../components/PinnedTasks'
 import TodoCalendarView from '../components/TodoCalendarView'
 import TodoGroupTable from '../components/TodoGroupTable'
 import TodoKanbanView from '../components/TodoKanbanView'
+import { FLOATING_TASK_DATE } from '../config'
 import { type AppEvent, onEvent } from '../events'
 
 export default function TodoGroup() {
   const { groupId } = useParams<{ groupId: string }>()
-  const [taskData, setTaskData] = useState<TaskGroup[]>([])
+  const [rawTaskData, setRawTaskData] = useState<TaskGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showManageTasks, setShowManageTasks] = useState(false)
@@ -29,7 +31,28 @@ export default function TodoGroup() {
     'table' | 'kanban' | 'calendar' | undefined
   >(undefined)
   const [settings, setSettings] = useState<GroupSettings>({})
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem(
+        'Streaks-&-Todo_FloatingTasksSidebarCollapsed',
+      )
+      return saved ? JSON.parse(saved) : true
+    } catch {
+      return true
+    }
+  })
   const titleRef = useRef<HTMLHeadingElement>(null)
+
+  // Filter out floating tasks for the views
+  const taskData = rawTaskData.map((group) => ({
+    ...group,
+    tasks: group.tasks.map((task) => ({
+      ...task,
+      records: task.records.filter(
+        (record) => record.date !== FLOATING_TASK_DATE,
+      ),
+    })),
+  }))
 
   const handleTitleChange = async (
     event: React.FormEvent<HTMLHeadingElement>,
@@ -80,6 +103,17 @@ export default function TodoGroup() {
   }
 
   useEffect(() => {
+    try {
+      localStorage.setItem(
+        'Streaks-&-Todo_FloatingTasksSidebarCollapsed',
+        JSON.stringify(sidebarCollapsed),
+      )
+    } catch {
+      // ignore
+    }
+  }, [sidebarCollapsed])
+
+  useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
       setError(null)
@@ -94,7 +128,7 @@ export default function TodoGroup() {
 
           const taskGroup = await fetchGroupTasks(groupIdNumber)
           if (taskGroup) {
-            setTaskData([taskGroup])
+            setRawTaskData([taskGroup])
             if (titleRef.current) {
               titleRef.current.textContent = taskGroup.name || ''
             }
@@ -139,7 +173,7 @@ export default function TodoGroup() {
         ) {
           try {
             const updated = await fetchGroupTasks(gid)
-            if (updated) setTaskData([updated])
+            if (updated) setRawTaskData([updated])
           } catch (err) {
             console.error('Live refresh failed:', err)
           }
@@ -295,42 +329,60 @@ export default function TodoGroup() {
         suppressContentEditableWarning={true}
       ></h1>
 
-      {viewMode === 'table' ? (
-        <TodoGroupTable
-          taskData={taskData}
-          loading={loading}
-          error={error}
-          onTaskDataChange={setTaskData}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr',
+          height: '100%',
+          minHeight: 0,
+        }}
+      >
+        <FloatingTasksSidebar
+          taskData={rawTaskData}
+          onTaskDataChange={setRawTaskData}
           groupId={groupId ? parseInt(groupId, 10) : undefined}
-          filterQuery={filterQuery}
-          onFilteredCountChange={setFilteredCount}
-          settings={settings}
+          collapsed={sidebarCollapsed}
+          onCollapsedChange={setSidebarCollapsed}
         />
-      ) : viewMode === 'kanban' ? (
-        <TodoKanbanView
-          taskData={taskData}
-          loading={loading}
-          error={error}
-          onTaskDataChange={setTaskData}
-          groupId={groupId ? parseInt(groupId, 10) : undefined}
-          filterQuery={filterQuery}
-        />
-      ) : viewMode === 'calendar' ? (
-        <TodoCalendarView
-          taskData={taskData}
-          loading={loading}
-          error={error}
-          onTaskDataChange={setTaskData}
-          groupId={groupId ? parseInt(groupId, 10) : undefined}
-          filterQuery={filterQuery}
-        />
-      ) : null}
+        <div style={{ minHeight: 0 }}>
+          {viewMode === 'table' ? (
+            <TodoGroupTable
+              taskData={taskData}
+              loading={loading}
+              error={error}
+              onTaskDataChange={setRawTaskData}
+              groupId={groupId ? parseInt(groupId, 10) : undefined}
+              filterQuery={filterQuery}
+              onFilteredCountChange={setFilteredCount}
+              settings={settings}
+            />
+          ) : viewMode === 'kanban' ? (
+            <TodoKanbanView
+              taskData={taskData}
+              loading={loading}
+              error={error}
+              onTaskDataChange={setRawTaskData}
+              groupId={groupId ? parseInt(groupId, 10) : undefined}
+              filterQuery={filterQuery}
+            />
+          ) : viewMode === 'calendar' ? (
+            <TodoCalendarView
+              taskData={taskData}
+              loading={loading}
+              error={error}
+              onTaskDataChange={setRawTaskData}
+              groupId={groupId ? parseInt(groupId, 10) : undefined}
+              filterQuery={filterQuery}
+            />
+          ) : null}
+        </div>
+      </div>
 
       {taskData[0] && groupId && (
         <PinnedTasks
           parentGroupId={parseInt(groupId, 10)}
           groupData={taskData[0]}
-          onRefresh={(updated) => setTaskData([updated])}
+          onRefresh={(updated) => setRawTaskData([updated])}
         />
       )}
 
@@ -351,7 +403,7 @@ export default function TodoGroup() {
             await updateTask(taskId, fields)
             if (groupId) {
               const updated = await fetchGroupTasks(parseInt(groupId, 10))
-              if (updated) setTaskData([updated])
+              if (updated) setRawTaskData([updated])
             }
           } catch (err) {
             alert((err as Error).message)

@@ -1,0 +1,352 @@
+.floating-sidebar {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: 300px;
+  min-width: 250px;
+  max-width: 350px;
+  height: 100%;
+  min-height: 0;
+}
+
+.floating-sidebar.collapsed {
+  width: 32px;
+  min-width: auto;
+  max-width: auto;
+}
+
+.floating-sidebar-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding-left: 0;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #ddd;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.floating-sidebar-header.header-drag-over {
+  background-color: #e8f5e9;
+  border-bottom-color: #4caf50;
+}
+
+.floating-sidebar-header.header-drag-over::after {
+  content: "↓ Drop to add to end";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #4caf50;
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 1001;
+  pointer-events: none;
+}
+
+.floating-sidebar-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #666;
+}
+
+.floating-sidebar-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+  color: #666;
+  transition: color 0.2s;
+}
+
+.floating-sidebar-toggle:hover {
+  color: #333;
+}
+
+.floating-sidebar.collapsed .floating-sidebar-toggle {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 12px 4px;
+}
+
+.floating-sidebar-title-vertical {
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #666;
+  letter-spacing: 2px;
+}
+
+.floating-sidebar-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.floating-task-list {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.floating-task-item {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.floating-task-item:hover {
+  cursor: grab;
+  background-color: #f8f9fa;
+}
+
+.floating-task-item:active {
+  cursor: grabbing;
+}
+
+.floating-task-item.dragging {
+  opacity: 0.6;
+  background-color: #e3f2fd;
+  z-index: 1000;
+}
+
+.floating-task-item.drag-over {
+  background-color: #f3e5f5;
+}
+
+.floating-task-item.drag-over::after {
+  content: "↓ Drop here";
+  position: absolute;
+  top: -18px;
+  right: 0;
+  background: #9c27b0;
+  color: white;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: normal;
+  white-space: nowrap;
+  z-index: 1001;
+}
+
+.floating-task-text {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+  width: 100%;
+  color: inherit;
+  flex: 1;
+  font: inherit;
+  white-space: break-spaces;
+}
+
+.floating-task-text:hover {
+  background-color: #f8f9fa;
+}
+
+/* Enhanced drag feedback */
+.floating-task-item.dragging .floating-task-text {
+  pointer-events: none;
+  color: #2196f3;
+  font-weight: 500;
+}
+
+.floating-task-item .task-action-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  margin-left: 4px;
+  transition:
+    opacity 0.2s ease,
+    background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.floating-task-item:hover .task-action-btn {
+  opacity: 1;
+}
+
+.floating-task-item .schedule-task-btn {
+  color: #667eea;
+}
+
+.floating-task-item .schedule-task-btn:hover {
+  background-color: #667eea;
+  color: white;
+}
+
+.floating-task-item .copy-task-btn {
+  color: #28a745;
+}
+
+.floating-task-item .copy-task-btn:hover {
+  background-color: #28a745;
+  color: white;
+}
+
+.floating-task-item .edit-task-btn {
+  color: #007bff;
+}
+
+.floating-task-item .edit-task-btn:hover {
+  background-color: #007bff;
+  color: white;
+}
+
+.floating-task-item .delete-task-btn {
+  color: #dc3545;
+}
+
+.floating-task-item .delete-task-btn:hover {
+  background-color: #dc3545;
+  color: white;
+}
+
+.task-edit-input {
+  border: none;
+  border-radius: 2px;
+  padding: 0;
+  width: 100%;
+  font: inherit;
+  color: #333;
+  outline: none;
+}
+
+.floating-drop-zone {
+  height: 4px;
+  margin: 2px 0;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+  opacity: 0;
+}
+
+.floating-drop-zone.drop-zone-active {
+  opacity: 1;
+  background-color: #4caf50;
+  height: 8px;
+  margin: 4px 0;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+}
+
+.floating-sidebar-input {
+  padding: 0;
+}
+
+.floating-empty-drop-area {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.floating-empty-drop-area .floating-drop-zone {
+  flex: 1;
+  height: auto;
+}
+
+.floating-empty-drop-area .floating-drop-zone.drop-zone-active {
+  background-color: rgba(76, 175, 80, 0.15);
+  border: 1px dashed #4caf50;
+  box-shadow: none;
+  margin: 0 8px 0 0;
+}
+
+.floating-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.floating-input-inner {
+  position: relative;
+  flex: 1;
+}
+
+.floating-task-input {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  border-radius: 2px;
+  transition: background-color 0.2s ease;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.floating-task-input::placeholder {
+  color: #999;
+}
+
+.floating-combobox-menu {
+  position: absolute;
+  z-index: 10;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-top: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  min-width: 180px;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+  border-top: none;
+  white-space: break-spaces;
+  font-size: 14px;
+}
+
+.floating-combobox-menu:empty {
+  border: none;
+  box-shadow: none;
+}
+
+.floating-combobox-menu li {
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+}
+
+.floating-combobox-menu li.highlighted,
+.floating-combobox-menu li:hover {
+  background: #f8f9fa;
+}
+
+.floating-combobox-menu .task-extra-info {
+  color: #888;
+  font-size: 12px;
+  margin-left: 4px;
+}

@@ -17,6 +17,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../api'
+import { FLOATING_TASK_DATE } from '../config'
 import { formatTaskWithExtraInfo } from '../helpers'
 import {
   copyTaskToClipboard,
@@ -106,8 +107,8 @@ function DropZone({
     return dropTargetForElements({
       element,
       canDrop: ({ source }) => {
-        if (source.data.type === 'kanban-card') {
-          return source.data.cardId !== targetLogId
+        if (source.data.type === 'task-item') {
+          return source.data.logId !== targetLogId
         }
         if (source.data.type === 'pin-item') {
           return true
@@ -118,9 +119,9 @@ function DropZone({
       onDragLeave: () => setIsActive(false),
       onDrop: ({ source }) => {
         setIsActive(false)
-        if (source.data.type === 'kanban-card') {
-          const sourceLogId = source.data.cardId as number
-          const sourceDate = source.data.date as string
+        if (source.data.type === 'task-item') {
+          const sourceLogId = source.data.logId as number
+          const sourceDate = source.data.sourceDate as string
           onReorder(
             date,
             sourceDate,
@@ -195,13 +196,13 @@ function KanbanCardComponent({
       draggable({
         element,
         getInitialData: () => ({
-          type: 'kanban-card',
-          cardId: card.id,
+          type: 'task-item',
+          logId: card.id,
           taskId: card.taskId,
           taskName: card.taskName,
           extraInfo: card.extraInfo,
           currentStatus: card.done ? 'done' : 'todo',
-          date: card.date,
+          sourceDate: card.date,
         }),
         onDragStart: () => setIsDragging(true),
         onDrop: () => setIsDragging(false),
@@ -209,26 +210,29 @@ function KanbanCardComponent({
       dropTargetForElements({
         element,
         canDrop: ({ source }) => {
-          return (
-            source.data.type === 'kanban-card' && source.data.cardId !== card.id
-          )
+          if (source.data.type === 'task-item') {
+            return source.data.logId !== card.id
+          }
+          return false
         },
         onDragEnter: () => setIsDraggedOver(true),
         onDragLeave: () => setIsDraggedOver(false),
         onDrop: ({ source }) => {
           setIsDraggedOver(false)
-          const sourceLogId = source.data.cardId as number
-          const sourceDate = source.data.date as string
-          if (sourceLogId === card.id) return
-          // Pass the target card's done status so cross-column drops position correctly
-          onReorder(
-            card.date,
-            sourceDate,
-            sourceLogId,
-            card.id,
-            'before',
-            card.done,
-          )
+          if (source.data.type === 'task-item') {
+            const sourceLogId = source.data.logId as number
+            const sourceDate = source.data.sourceDate as string
+            if (sourceLogId === card.id) return
+            // Pass the target card's done status so cross-column drops position correctly
+            onReorder(
+              card.date,
+              sourceDate,
+              sourceLogId,
+              card.id,
+              'before',
+              card.done,
+            )
+          }
         },
       }),
     )
@@ -623,7 +627,12 @@ function KanbanColumn({
       dropTargetForElements({
         element,
         canDrop: ({ source }) => {
-          if (source.data.type !== 'kanban-card') return false
+          if (source.data.type !== 'task-item') return false
+          // Don't allow floating tasks to use column-level drop (status toggle)
+          // They should only drop on specific cards/zones to be scheduled
+          const sourceDate = source.data.sourceDate as string
+          if (sourceDate === FLOATING_TASK_DATE) return false
+
           const sourceStatus = source.data.currentStatus as string
           const targetStatus = isDoneColumn ? 'done' : 'todo'
           // Only allow drops from the opposite column
@@ -633,14 +642,14 @@ function KanbanColumn({
         onDragLeave: () => setIsDropTarget(false),
         onDrop: ({ source }) => {
           setIsDropTarget(false)
-          const cardId = source.data.cardId as number
+          const cardId = source.data.logId as number
           // Find the card from the source data
           const cardToToggle = {
             id: cardId,
             taskId: source.data.taskId as number,
             taskName: source.data.taskName as string,
             extraInfo: source.data.extraInfo as string | undefined,
-            date: source.data.date as string,
+            date: source.data.sourceDate as string,
             done: source.data.currentStatus === 'done',
             sortOrder: 0,
           }
