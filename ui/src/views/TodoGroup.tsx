@@ -31,16 +31,6 @@ export default function TodoGroup() {
     'table' | 'kanban' | 'calendar' | undefined
   >(undefined)
   const [settings, setSettings] = useState<GroupSettings>({})
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try {
-      const saved = localStorage.getItem(
-        'Streaks-&-Todo_FloatingTasksSidebarCollapsed',
-      )
-      return saved ? JSON.parse(saved) : true
-    } catch {
-      return true
-    }
-  })
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   // Filter out floating tasks for the views
@@ -102,16 +92,13 @@ export default function TodoGroup() {
     }
   }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        'Streaks-&-Todo_FloatingTasksSidebarCollapsed',
-        JSON.stringify(sidebarCollapsed),
-      )
-    } catch {
-      // ignore
+  const handleSidebarCollapsedChange = async (collapsed: boolean) => {
+    const newSettings = {
+      ...settings,
+      floatingTasksSidebarCollapsed: collapsed,
     }
-  }, [sidebarCollapsed])
+    await handleSettingsChange(newSettings)
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -337,13 +324,15 @@ export default function TodoGroup() {
           minHeight: 0,
         }}
       >
-        <FloatingTasksSidebar
-          taskData={rawTaskData}
-          onTaskDataChange={setRawTaskData}
-          groupId={groupId ? parseInt(groupId, 10) : undefined}
-          collapsed={sidebarCollapsed}
-          onCollapsedChange={setSidebarCollapsed}
-        />
+        {!loading && (
+          <FloatingTasksSidebar
+            taskData={rawTaskData}
+            onTaskDataChange={setRawTaskData}
+            groupId={groupId ? parseInt(groupId, 10) : undefined}
+            collapsed={settings.floatingTasksSidebarCollapsed ?? true}
+            onCollapsedChange={handleSidebarCollapsedChange}
+          />
+        )}
         <div style={{ minHeight: 0 }}>
           {viewMode === 'table' ? (
             <TodoGroupTable

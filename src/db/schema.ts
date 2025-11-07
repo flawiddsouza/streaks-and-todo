@@ -57,6 +57,7 @@ export const groupsTable = pgTable('groups', {
     table?: { showOnlyDaysUntilToday?: boolean }
     kanban?: { showOnlyDaysUntilToday?: boolean }
     calendar?: Record<string, unknown>
+    floatingTasksSidebarCollapsed?: boolean
   }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

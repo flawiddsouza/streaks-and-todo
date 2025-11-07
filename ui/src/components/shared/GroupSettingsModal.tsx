@@ -9,6 +9,7 @@ export interface GroupSettings {
     showOnlyDaysUntilToday?: boolean
   }
   calendar?: Record<string, unknown>
+  floatingTasksSidebarCollapsed?: boolean
 }
 
 interface GroupSettingsModalProps {
