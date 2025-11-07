@@ -16,9 +16,9 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../api'
-import { FLOATING_TASK_DATE } from '../config'
-import { formatTaskWithExtraInfo } from '../helpers'
+import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../../api'
+import { FLOATING_TASK_DATE } from '../../config'
+import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   copyTaskToClipboard,
   deleteTaskLog,
@@ -26,8 +26,8 @@ import {
   handleTaskSelection,
   processTaskInput,
   reorderTaskLog,
-} from '../utils/task-utils'
-import type { GroupSettings } from './GroupSettingsModal'
+} from '../../utils/task-utils'
+import type { GroupSettings } from '../shared/GroupSettingsModal'
 import './TodoKanbanView.css'
 
 interface TodoKanbanViewProps {

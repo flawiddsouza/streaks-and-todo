@@ -22,10 +22,10 @@ import {
   type TaskGroup,
   type TaskRecord,
   updateGroupNote,
-} from '../api'
-import type { GroupSettings } from './GroupSettingsModal'
+} from '../../api'
+import type { GroupSettings } from '../shared/GroupSettingsModal'
 import './TodoGroupTable.css'
-import { formatTaskWithExtraInfo } from '../helpers'
+import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   addOrCreateTask,
   copyTaskToClipboard,
@@ -34,7 +34,7 @@ import {
   handleTaskSelection,
   processTaskInput,
   reorderTaskLog,
-} from '../utils/task-utils'
+} from '../../utils/task-utils'
 
 interface TodoGroupTableProps {
   taskData: TaskGroup[]

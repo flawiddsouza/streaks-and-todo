@@ -9,17 +9,17 @@ import Downshift, { type StateChangeOptions } from 'downshift'
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { TaskGroup, TaskRecord } from '../api'
-import { moveTaskLog, setTaskLog } from '../api'
-import { FLOATING_TASK_DATE } from '../config'
-import { formatTaskWithExtraInfo } from '../helpers'
+import type { TaskGroup, TaskRecord } from '../../api'
+import { moveTaskLog, setTaskLog } from '../../api'
+import { FLOATING_TASK_DATE } from '../../config'
+import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   addOrCreateTask,
   copyTaskToClipboard,
   deleteTaskLog,
   processTaskInput,
   reorderTaskLog,
-} from '../utils/task-utils'
+} from '../../utils/task-utils'
 import DatePickerDialog from './DatePickerDialog'
 import './FloatingTasksSidebar.css'
 

@@ -58,10 +58,10 @@ import {
   reorderPinGroups,
   reorderPinGroupTasks,
   type TaskGroup,
-} from '../api'
+} from '../../api'
 import './PinnedTasks.css'
-import { formatTaskWithExtraInfo } from '../helpers'
-import { parseTaskWithExtraInfo } from '../utils/task-utils'
+import { formatTaskWithExtraInfo } from '../../helpers'
+import { parseTaskWithExtraInfo } from '../../utils/task-utils'
 import confirmAsync from './confirmAsync'
 
 type PinTask = {

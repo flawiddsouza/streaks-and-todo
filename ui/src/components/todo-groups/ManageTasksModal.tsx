@@ -1,12 +1,12 @@
-import Modal from './Modal'
-import './ManageGroupModal.css'
+import Modal from '../shared/Modal'
+import '../shared/ManageGroupModal.css'
 import { useEffect, useMemo, useState } from 'react'
 import {
   type ApiStreak,
   fetchAllStreaks,
   fillMissingStreaksForTask,
   type TaskGroup,
-} from '../api'
+} from '../../api'
 
 interface ManageTasksModalProps {
   isOpen: boolean

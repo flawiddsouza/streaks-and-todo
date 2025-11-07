@@ -15,12 +15,12 @@ import {
   type StreakRecord,
   toggleStreakLog,
   updateStreakLogNote,
-} from '../api'
-import confirmAsync from './confirmAsync'
+} from '../../api'
+import confirmAsync from '../shared/confirmAsync'
 import './StreakGroupTable.css'
-import { useMobileStreakInteraction } from '../hooks/useMobileStreakInteraction'
+import { useMobileStreakInteraction } from '../../hooks/useMobileStreakInteraction'
+import Modal from '../shared/Modal'
 import MobileStreakActionModal from './MobileStreakActionModal'
-import Modal from './Modal'
 
 interface StreakGroupTableProps {
   streakData: StreakGroup[]

@@ -1,7 +1,7 @@
 import dayjs from 'dayjs'
 import type { Dispatch, SetStateAction } from 'react'
-import type { MobileModalState } from '../hooks/useMobileStreakInteraction'
-import Modal from './Modal'
+import type { MobileModalState } from '../../hooks/useMobileStreakInteraction'
+import Modal from '../shared/Modal'
 
 interface MobileStreakActionModalProps {
   state: MobileModalState

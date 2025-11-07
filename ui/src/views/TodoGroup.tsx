@@ -6,15 +6,15 @@ import {
   updateGroup,
   updateTask,
 } from '../api'
-import FloatingTasksSidebar from '../components/FloatingTasksSidebar'
+import FloatingTasksSidebar from '../components/shared/FloatingTasksSidebar'
 import GroupSettingsModal, {
   type GroupSettings,
-} from '../components/GroupSettingsModal'
-import ManageTasksModal from '../components/ManageTasksModal'
-import PinnedTasks from '../components/PinnedTasks'
-import TodoCalendarView from '../components/TodoCalendarView'
-import TodoGroupTable from '../components/TodoGroupTable'
-import TodoKanbanView from '../components/TodoKanbanView'
+} from '../components/shared/GroupSettingsModal'
+import PinnedTasks from '../components/shared/PinnedTasks'
+import ManageTasksModal from '../components/todo-groups/ManageTasksModal'
+import TodoCalendarView from '../components/todo-groups/TodoCalendarView'
+import TodoGroupTable from '../components/todo-groups/TodoGroupTable'
+import TodoKanbanView from '../components/todo-groups/TodoKanbanView'
 import { FLOATING_TASK_DATE } from '../config'
 import { type AppEvent, onEvent } from '../events'
 

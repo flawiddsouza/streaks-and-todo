@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { authClient } from '../auth-client'
-import NotificationSettingsModal from '../components/NotificationSettingsModal'
+import NotificationSettingsModal from '../components/shared/NotificationSettingsModal'
 
 interface SessionData {
   user: { id: string; email: string; name: string }

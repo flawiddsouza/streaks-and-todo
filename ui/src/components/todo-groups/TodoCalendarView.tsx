@@ -15,8 +15,8 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../api'
-import { formatTaskWithExtraInfo } from '../helpers'
+import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../../api'
+import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   copyTaskToClipboard,
   deleteTaskLog,
@@ -24,7 +24,7 @@ import {
   handleTaskSelection,
   processTaskInput,
   reorderTaskLog,
-} from '../utils/task-utils'
+} from '../../utils/task-utils'
 import './TodoCalendarView.css'
 
 // Dropdown menu component for task actions

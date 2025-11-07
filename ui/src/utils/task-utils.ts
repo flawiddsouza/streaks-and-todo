@@ -8,7 +8,7 @@ import {
   setTaskLog,
   type TaskGroup,
 } from '../api'
-import confirmAsync from '../components/confirmAsync'
+import confirmAsync from '../components/shared/confirmAsync'
 
 export interface ParsedTaskInput {
   task: string

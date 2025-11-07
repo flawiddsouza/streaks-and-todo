@@ -1,4 +1,4 @@
-import type { TaskGroup } from '../api'
+import type { TaskGroup } from '../../api'
 import Modal from './Modal'
 
 export interface GroupSettings {

@@ -11,8 +11,8 @@ import {
   updateGroup,
   updateStreakOrder,
 } from '../api'
-import ManageGroupModal from '../components/ManageGroupModal'
-import StreakGroupTable from '../components/StreakGroupTable'
+import ManageGroupModal from '../components/shared/ManageGroupModal'
+import StreakGroupTable from '../components/streak-groups/StreakGroupTable'
 import { type AppEvent, onEvent } from '../events'
 
 export default function Group() {

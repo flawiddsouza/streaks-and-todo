@@ -6,13 +6,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 dayjs.extend(utc)
 dayjs.extend(timezone)
 
-import type { NotificationDeliveryLog, NotificationSettings } from '../api'
+import type { NotificationDeliveryLog, NotificationSettings } from '../../api'
 import {
   getNotificationDeliveries,
   getUserNotificationSettings,
   sendTestNotification,
   updateNotificationSettings,
-} from '../api'
+} from '../../api'
 import Modal from './Modal'
 
 interface NotificationSettingsModalProps {

@@ -1,8 +1,8 @@
-import type { ApiStreak, StreakGroup } from '../api'
+import type { ApiStreak, StreakGroup } from '../../api'
 import Modal from './Modal'
 import './ManageGroupModal.css'
 import { useState } from 'react'
-import { updateStreakNotifications } from '../api'
+import { updateStreakNotifications } from '../../api'
 
 interface ManageGroupModalProps {
   isOpen: boolean

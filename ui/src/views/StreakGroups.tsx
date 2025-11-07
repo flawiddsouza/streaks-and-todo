@@ -8,7 +8,7 @@ import {
 } from '../api'
 import ManageableList, {
   type ManageableListConfig,
-} from '../components/ManageableList'
+} from '../components/shared/ManageableList'
 
 export default function StreakGroups() {
   const config: ManageableListConfig<ApiGroup> = {

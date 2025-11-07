@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, redirect } from 'react-router'
-import NotFound from './components/NotFound'
+import NotFound from './components/shared/NotFound'
 import Home from './views/Home'
 import SignIn from './views/SignIn'
 import SignUp from './views/SignUp'
