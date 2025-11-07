@@ -5,7 +5,9 @@ export interface GroupSettings {
   table?: {
     showOnlyDaysUntilToday?: boolean
   }
-  kanban?: Record<string, unknown>
+  kanban?: {
+    showOnlyDaysUntilToday?: boolean
+  }
   calendar?: Record<string, unknown>
 }
 
@@ -36,6 +38,16 @@ export default function GroupSettingsModal({
     })
   }
 
+  const handleKanbanSettingChange = (
+    key: keyof NonNullable<GroupSettings['kanban']>,
+    value: boolean,
+  ) => {
+    onSettingsChange({
+      ...settings,
+      kanban: { ...settings.kanban, [key]: value },
+    })
+  }
+
   return (
     <Modal
       isOpen={isOpen}
@@ -60,6 +72,34 @@ export default function GroupSettingsModal({
               checked={settings.table?.showOnlyDaysUntilToday ?? false}
               onChange={(e) =>
                 handleTableSettingChange(
+                  'showOnlyDaysUntilToday',
+                  e.target.checked,
+                )
+              }
+              style={{ cursor: 'pointer' }}
+            />
+            <span>Show only days until today (hide future dates)</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="manage-section" style={{ marginTop: '20px' }}>
+        <h3>Kanban View Settings</h3>
+        <div style={{ marginTop: '12px' }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              cursor: 'pointer',
+              padding: '8px 0',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={settings.kanban?.showOnlyDaysUntilToday ?? false}
+              onChange={(e) =>
+                handleKanbanSettingChange(
                   'showOnlyDaysUntilToday',
                   e.target.checked,
                 )

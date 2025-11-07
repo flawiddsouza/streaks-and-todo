@@ -364,6 +364,7 @@ export default function TodoGroup() {
               onTaskDataChange={setRawTaskData}
               groupId={groupId ? parseInt(groupId, 10) : undefined}
               filterQuery={filterQuery}
+              settings={settings}
             />
           ) : viewMode === 'calendar' ? (
             <TodoCalendarView

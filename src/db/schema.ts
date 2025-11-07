@@ -55,7 +55,7 @@ export const groupsTable = pgTable('groups', {
   viewMode: smallint('view_mode'), // 0 = table, 1 = kanban, 2 = calendar
   settings: json('settings').$type<{
     table?: { showOnlyDaysUntilToday?: boolean }
-    kanban?: Record<string, unknown>
+    kanban?: { showOnlyDaysUntilToday?: boolean }
     calendar?: Record<string, unknown>
   }>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),

@@ -1562,7 +1562,7 @@ const api = new Elysia({ prefix: '/api' })
                 viewMode?: 'table' | 'kanban' | 'calendar'
                 settings?: {
                   table?: { showOnlyDaysUntilToday?: boolean }
-                  kanban?: Record<string, unknown>
+                  kanban?: { showOnlyDaysUntilToday?: boolean }
                   calendar?: Record<string, unknown>
                 }
               }
@@ -1577,7 +1577,7 @@ const api = new Elysia({ prefix: '/api' })
                 viewMode?: number | null
                 settings?: {
                   table?: { showOnlyDaysUntilToday?: boolean }
-                  kanban?: Record<string, unknown>
+                  kanban?: { showOnlyDaysUntilToday?: boolean }
                   calendar?: Record<string, unknown>
                 }
               } = {}

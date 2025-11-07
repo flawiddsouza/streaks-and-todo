@@ -27,6 +27,7 @@ import {
   processTaskInput,
   reorderTaskLog,
 } from '../utils/task-utils'
+import type { GroupSettings } from './GroupSettingsModal'
 import './TodoKanbanView.css'
 
 interface TodoKanbanViewProps {
@@ -36,6 +37,7 @@ interface TodoKanbanViewProps {
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
   groupId?: number
   filterQuery?: string
+  settings: GroupSettings
 }
 
 interface KanbanCard {
@@ -814,6 +816,7 @@ export default function TodoKanbanView({
   onTaskDataChange,
   groupId,
   filterQuery = '',
+  settings,
 }: TodoKanbanViewProps) {
   const [editingTask, setEditingTask] = useState<{
     logId: number
@@ -859,9 +862,16 @@ export default function TodoKanbanView({
 
     // Group by date and sort
     const groupByDate = (cards: KanbanCard[]): DateGroup[] => {
+      const today = dayjs().format('YYYY-MM-DD')
+
       // Group by date
       const groupMap = new Map<string, KanbanCard[]>()
       cards.forEach((card) => {
+        // Apply date filtering based on settings
+        if (settings.kanban?.showOnlyDaysUntilToday && card.date > today) {
+          return // Skip future dates if setting is enabled
+        }
+
         const existing = groupMap.get(card.date)
         if (existing) {
           existing.push(card)
@@ -872,7 +882,6 @@ export default function TodoKanbanView({
 
       // Ensure today is always present, even if empty (but only when no filter is active)
       if (!filterQuery.trim()) {
-        const today = dayjs().format('YYYY-MM-DD')
         if (!groupMap.has(today)) {
           groupMap.set(today, [])
         }
@@ -893,7 +902,7 @@ export default function TodoKanbanView({
       todoGroups: groupByDate(todoCards),
       doneGroups: groupByDate(doneCards),
     }
-  }, [taskData, filterQuery])
+  }, [taskData, filterQuery, settings])
 
   const toggleCardStatus = useCallback(
     async (card: KanbanCard) => {

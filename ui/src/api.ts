@@ -60,7 +60,7 @@ export interface ApiGroup {
   viewMode?: 'table' | 'kanban' | 'calendar'
   settings?: {
     table?: { showOnlyDaysUntilToday?: boolean }
-    kanban?: Record<string, unknown>
+    kanban?: { showOnlyDaysUntilToday?: boolean }
     calendar?: Record<string, unknown>
   }
 }
@@ -134,7 +134,7 @@ export interface TaskGroup {
   viewMode?: 'table' | 'kanban' | 'calendar'
   settings?: {
     table?: { showOnlyDaysUntilToday?: boolean }
-    kanban?: Record<string, unknown>
+    kanban?: { showOnlyDaysUntilToday?: boolean }
     calendar?: Record<string, unknown>
   }
   tasks: TaskItem[]
@@ -683,7 +683,7 @@ export const updateGroup = async (
     viewMode?: 'table' | 'kanban' | 'calendar'
     settings?: {
       table?: { showOnlyDaysUntilToday?: boolean }
-      kanban?: Record<string, unknown>
+      kanban?: { showOnlyDaysUntilToday?: boolean }
       calendar?: Record<string, unknown>
     }
   },
