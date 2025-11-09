@@ -432,7 +432,8 @@ function PinGroupRow({
   onReorder: (fromIndex: number, toIndex: number) => Promise<void>
   children: React.ReactNode
 }) {
-  const ref = useRef<HTMLDivElement>(null)
+  const groupRef = useRef<HTMLDivElement>(null)
+  const handleRef = useRef<HTMLButtonElement>(null)
   const [name, setName] = useState(group.name)
   const [dragOver, setDragOver] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -458,11 +459,12 @@ function PinGroupRow({
   }, [isCollapsed, group.id])
 
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
+    const el = groupRef.current
+    const handleEl = handleRef.current
+    if (!el || !handleEl) return
     return combine(
       draggable({
-        element: el,
+        element: handleEl,
         getInitialData: () => ({ type: 'pin-group', id: group.id, index }),
       }),
       dropTargetForElements({
@@ -488,10 +490,18 @@ function PinGroupRow({
 
   return (
     <div
-      ref={ref}
+      ref={groupRef}
       className={`pin-group pin-group-row ${dragOver ? 'drag-over' : ''}`}
     >
       <div className="pin-group-header">
+        <button
+          type="button"
+          ref={handleRef}
+          className="pin-group-handle"
+          aria-label="Drag to reorder pinned group"
+        >
+          ⋮⋮
+        </button>
         <button
           type="button"
           className="pin-group-collapse"

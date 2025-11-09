@@ -51,6 +51,20 @@
   margin-right: 4px;
 }
 
+.pin-group-handle {
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: grab;
+  color: #6b7280;
+}
+
+.pin-group-handle:active {
+  cursor: grabbing;
+}
+
 .pin-group-collapse:hover {
   background: #f3f4f6;
 }
