@@ -24,6 +24,9 @@ RUN bun install --frozen-lockfile
 COPY src/ src/
 COPY drizzle.config.ts tsconfig.json ./
 
+# Copy UI source files needed by backend at runtime
+COPY ui/src/helpers.ts ui/src/helpers.ts
+
 # Copy built frontend from previous stage
 COPY --from=frontend-builder /app/ui/dist ./ui/dist
 

@@ -1196,6 +1196,14 @@ const api = new Elysia({ prefix: '/api' })
                     extraInfo: '9:00 AM',
                     sortOrder: 3,
                   },
+                  {
+                    id: 4,
+                    task: 'Continue working on $x',
+                    groupId: 1,
+                    groupName: 'Work',
+                    extraInfo: 'Task Manager Refactor',
+                    sortOrder: 4,
+                  },
                 ],
               )
             } else if (type === 'evening') {
@@ -1269,6 +1277,15 @@ const api = new Elysia({ prefix: '/api' })
                     groupId: 1,
                     groupName: 'Work',
                     extraInfo: null,
+                  },
+                  {
+                    id: 4,
+                    task: 'Deploy $x to production',
+                    date: tomorrow.toISOString().split('T')[0],
+                    daysUntil: 1,
+                    groupId: 1,
+                    groupName: 'Work',
+                    extraInfo: 'v2.5.0 Release',
                   },
                 ],
               )

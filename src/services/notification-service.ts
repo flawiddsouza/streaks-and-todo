@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 import dayjs from 'dayjs'
 import type { InferSelectModel } from 'drizzle-orm'
+import { formatTaskWithExtraInfo } from '../../ui/src/helpers'
 import { config } from '../config'
 import { db } from '../db'
 import {
@@ -339,10 +340,13 @@ export class NotificationService {
       const items: Array<{ group?: string; text: string; extra?: string }> = []
       for (const [groupName, groupTasks] of tasksByGroup) {
         for (const task of groupTasks) {
+          const formatted = formatTaskWithExtraInfo(
+            task.task,
+            task.extraInfo || undefined,
+          )
           items.push({
             group: groupName,
-            text: task.task,
-            extra: task.extraInfo || undefined,
+            text: formatted.text,
           })
         }
       }
@@ -416,12 +420,14 @@ export class NotificationService {
         const formattedDate = dayjs(date).format('DD-MMM-YY')
 
         for (const task of tasks) {
+          const formatted = formatTaskWithExtraInfo(
+            task.task,
+            task.extraInfo || undefined,
+          )
           items.push({
             group: `${dateLabel} (${formattedDate})`,
-            text: task.task,
-            extra: task.extraInfo
-              ? `${task.extraInfo} • ${task.groupName}`
-              : task.groupName,
+            text: formatted.text,
+            extra: task.groupName,
           })
         }
       }
