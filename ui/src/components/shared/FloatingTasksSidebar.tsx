@@ -544,7 +544,7 @@ export default function FloatingTasksSidebar({
           FLOATING_TASK_DATE,
           groupId,
           onTaskDataChange,
-          true,
+          false,
         )
       } catch (err) {
         console.error('Error deleting floating task:', err)

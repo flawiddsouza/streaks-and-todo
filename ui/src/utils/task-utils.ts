@@ -9,6 +9,7 @@ import {
   type TaskGroup,
 } from '../api'
 import confirmAsync from '../components/shared/confirmAsync'
+import { FLOATING_TASK_DATE } from '../config'
 
 export interface ParsedTaskInput {
   task: string
@@ -438,12 +439,17 @@ export async function deleteTaskLog(
   if (!groupId) return
 
   const currentDate = dayjs().format('YYYY-MM-DD')
+  const isFloatingTask = date === FLOATING_TASK_DATE
 
   // Only show confirmation if deleting from a date other than today (unless skipConfirmation is true)
-  if (!skipConfirmation && date !== currentDate) {
+  if (!skipConfirmation && (date !== currentDate || isFloatingTask)) {
+    const message = isFloatingTask
+      ? 'Remove this task from floating tasks?'
+      : `Remove this task from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`
+
     const confirmed = await confirmAsync({
       title: 'Confirm delete',
-      message: `Remove this task from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`,
+      message,
       confirmLabel: 'Delete',
       cancelLabel: 'Cancel',
       maxWidth: '480px',
