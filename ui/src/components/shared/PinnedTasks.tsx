@@ -153,6 +153,41 @@ export default function PinnedTasks({
       const trimmed = inputValue.trim()
       if (!trimmed) return
 
+      // Try parsing as JSON first (to support copying from other pinned groups)
+      try {
+        const parsed = JSON.parse(trimmed)
+        if (Array.isArray(parsed)) {
+          // Handle JSON array format - add multiple tasks
+          const taskIdByName = new Map(
+            availableTasks.map((t) => [t.task.toLowerCase(), t.id]),
+          )
+
+          for (const raw of parsed) {
+            const taskName = raw.task?.trim()
+            if (!taskName) continue
+
+            const taskId = taskIdByName.get(taskName.toLowerCase())
+            if (!taskId) {
+              alert(
+                `Task "${taskName}" not found. Create it in the group above first.`,
+              )
+              continue
+            }
+
+            const extraInfo = raw.extraInfo?.trim() || null
+
+            await addTaskToPinGroup(pinGroupId, taskId, extraInfo)
+          }
+
+          setAddingTaskInput((s) => ({ ...s, [pinGroupId]: '' }))
+          await refresh()
+          return
+        }
+      } catch {
+        // Not JSON, continue with plain text processing
+      }
+
+      // Handle plain text input
       // Parse task name and extraInfo from input (e.g., "task name (extra info)")
       const { task: taskName, extraInfo } = parseTaskWithExtraInfo(trimmed)
 
