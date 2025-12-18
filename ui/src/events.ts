@@ -8,6 +8,7 @@ export type AppEvent =
   | { type: 'group.meta.updated'; groupId: number }
   | { type: 'group.note.updated'; groupId: number; date: string }
   | { type: 'group.streaks.changed'; groupId: number }
+  | { type: 'streaks.changed' }
   | { type: 'streak.log.updated'; streakId: number; date: string }
   | { type: 'streak.note.updated'; streakId: number; date: string }
   | {

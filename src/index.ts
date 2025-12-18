@@ -885,6 +885,7 @@ const api = new Elysia({ prefix: '/api' })
               .values({ userId, name: name.trim() })
               .returning()
 
+            broadcast(userId, { type: 'streaks.changed' })
             return { streak: newStreak }
           } catch (err) {
             console.error('Error creating streak:', err)
@@ -944,6 +945,7 @@ const api = new Elysia({ prefix: '/api' })
                 type: 'streak.meta.updated',
                 streakId: streakIdNum,
               })
+              broadcast(userId, { type: 'streaks.changed' })
 
               return { streak: updated }
             } catch (err) {

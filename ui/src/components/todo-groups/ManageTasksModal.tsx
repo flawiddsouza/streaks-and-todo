@@ -7,6 +7,7 @@ import {
   fillMissingStreaksForTask,
   type TaskGroup,
 } from '../../api'
+import { type AppEvent, onEvent } from '../../events'
 
 interface ManageTasksModalProps {
   isOpen: boolean
@@ -63,9 +64,21 @@ export default function ManageTasksModal({
   }, [group])
 
   useEffect(() => {
-    fetchAllStreaks()
-      .then(setAllStreaks)
-      .catch(() => setAllStreaks([]))
+    const loadStreaks = () => {
+      fetchAllStreaks()
+        .then(setAllStreaks)
+        .catch(() => setAllStreaks([]))
+    }
+
+    loadStreaks()
+
+    const unsub = onEvent((evt: AppEvent) => {
+      if (evt.type === 'streaks.changed') {
+        loadStreaks()
+      }
+    })
+
+    return () => unsub()
   }, [])
 
   const tasks = useMemo(() => {
