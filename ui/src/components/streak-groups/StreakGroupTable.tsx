@@ -456,7 +456,7 @@ export default function StreakGroupTable({
         }
       }, 0)
     } else {
-      // Create new note
+      // Create new note - this will NOT change the streak's done state
       updateNoteContent(streakName, date, 'Note: ')
       setTimeout(() => {
         const noteElement = document.querySelector(

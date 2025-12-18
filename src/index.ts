@@ -815,6 +815,7 @@ const api = new Elysia({ prefix: '/api' })
                   .returning()
                 log = updatedLog
               } else {
+                // Create new record with done: false - adding a note should not mark streak as done
                 const [newLog] = await db
                   .insert(streakLogTable)
                   .values({
@@ -822,7 +823,7 @@ const api = new Elysia({ prefix: '/api' })
                     streakId: streakIdNum,
                     date,
                     note: note || null,
-                    done: true,
+                    done: false,
                   })
                   .returning()
                 log = newLog
