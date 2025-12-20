@@ -1,6 +1,6 @@
 import Modal from '../shared/Modal'
 import '../shared/ManageGroupModal.css'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ApiStreak,
   fetchAllStreaks,
@@ -45,6 +45,25 @@ export default function ManageTasksModal({
   } | null>(null)
   const [allStreaks, setAllStreaks] = useState<ApiStreak[]>([])
   const [filter, setFilter] = useState<string>('')
+  const [expandedFields, setExpandedFields] = useState<Record<number, boolean>>(
+    {},
+  )
+  const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({})
+
+  // Focus textarea and move cursor to end when field expands
+  useEffect(() => {
+    for (const [taskIdStr, isExpanded] of Object.entries(expandedFields)) {
+      if (isExpanded) {
+        const taskId = Number(taskIdStr)
+        const textarea = textareaRefs.current[taskId]
+        if (textarea) {
+          textarea.focus()
+          const len = textarea.value.length
+          textarea.setSelectionRange(len, len)
+        }
+      }
+    }
+  }, [expandedFields])
 
   useEffect(() => {
     if (!group) return
@@ -167,15 +186,54 @@ export default function ManageTasksModal({
                   />
                 </div>
                 <div style={{ flex: 2 }}>
-                  <input
-                    type="text"
-                    value={drafts[t.id]?.defaultExtraInfo ?? ''}
-                    onChange={(e) =>
-                      handleChange(t.id, 'defaultExtraInfo', e.target.value)
-                    }
-                    placeholder="Default extra info (optional)"
-                    className="streak-name-input"
-                  />
+                  {expandedFields[t.id] ||
+                  (drafts[t.id]?.defaultExtraInfo ?? '').includes('\n') ? (
+                    <textarea
+                      ref={(el) => {
+                        textareaRefs.current[t.id] = el
+                      }}
+                      value={drafts[t.id]?.defaultExtraInfo ?? ''}
+                      onChange={(e) =>
+                        handleChange(t.id, 'defaultExtraInfo', e.target.value)
+                      }
+                      onBlur={() => {
+                        const val = drafts[t.id]?.defaultExtraInfo ?? ''
+                        if (!val.includes('\n')) {
+                          setExpandedFields((s) => ({ ...s, [t.id]: false }))
+                        }
+                      }}
+                      placeholder="One item per line (press Enter to add more)"
+                      className="streak-name-input"
+                      style={{
+                        minHeight: 60,
+                        resize: 'vertical',
+                        width: '100%',
+                        fontFamily: 'inherit',
+                        fontSize: 'inherit',
+                      }}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      value={drafts[t.id]?.defaultExtraInfo ?? ''}
+                      onChange={(e) =>
+                        handleChange(t.id, 'defaultExtraInfo', e.target.value)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          setExpandedFields((s) => ({ ...s, [t.id]: true }))
+                          handleChange(
+                            t.id,
+                            'defaultExtraInfo',
+                            `${drafts[t.id]?.defaultExtraInfo ?? ''}\n`,
+                          )
+                        }
+                      }}
+                      placeholder="Default extra info (Enter for multi)"
+                      className="streak-name-input"
+                    />
+                  )}
                 </div>
                 <div style={{ flex: 2 }}>
                   <select

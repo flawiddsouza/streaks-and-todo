@@ -20,6 +20,11 @@ import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   copyTaskToClipboard,
   deleteTaskLog,
+  expandTasksForDropdown,
+  type FlatTask,
+  filterTasksByQuery,
+  getFlatTaskKey,
+  getTasksForDisplay,
   handleAddFromPin,
   handleTaskSelection,
   processTaskInput,
@@ -117,20 +122,6 @@ interface TodoCalendarViewProps {
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
   groupId?: number
   filterQuery?: string
-}
-
-interface FlatTask {
-  id: number
-  task: string
-  groupName: string
-  defaultExtraInfo?: string | null
-  records: {
-    id: number
-    date: string
-    done: boolean
-    extraInfo?: string
-    sortOrder: number
-  }[]
 }
 
 interface DayData {
@@ -583,12 +574,7 @@ function TaskInput({
           }
         }
 
-        const filteredTasks =
-          inputValue.trim() !== ''
-            ? availableTasks.filter((item) =>
-                item.task.toLowerCase().includes(inputValue.toLowerCase()),
-              )
-            : []
+        const filteredTasks = filterTasksByQuery(availableTasks, inputValue)
 
         return (
           <div className="calendar-task-input-wrap">
@@ -638,7 +624,7 @@ function TaskInput({
                     {filteredTasks.map((item, index) => (
                       <li
                         {...getItemProps({ item, index })}
-                        key={item.id}
+                        key={getFlatTaskKey(item)}
                         className={
                           highlightedIndex === index ? 'highlighted' : ''
                         }
@@ -710,17 +696,14 @@ export default function TodoCalendarView({
     }, 100)
   }, [viewMode, currentMonth, currentWeek])
 
-  const allTasks = useMemo(() => {
-    return taskData.flatMap((group) =>
-      group.tasks.map((task) => ({
-        id: task.id,
-        task: task.task,
-        groupName: group.name,
-        defaultExtraInfo: task.defaultExtraInfo,
-        records: task.records,
-      })),
-    )
-  }, [taskData])
+  // Expanded tasks for dropdown suggestions (tasks with multi-line defaultExtraInfo get multiple entries)
+  const dropdownTasks = useMemo(
+    () => expandTasksForDropdown(taskData),
+    [taskData],
+  )
+
+  // Non-expanded tasks for building display lists (prevents duplicate rendering)
+  const displayTasks = useMemo(() => getTasksForDisplay(taskData), [taskData])
 
   const dateNoteMap = useMemo(() => {
     const groupNotesArr = taskData[0]?.notes || []
@@ -760,7 +743,7 @@ export default function TodoCalendarView({
       const doneTasks: DayData['doneTasks'] = []
       const todoTasks: DayData['todoTasks'] = []
 
-      allTasks.forEach((task) => {
+      displayTasks.forEach((task) => {
         const records = task.records.filter((record) => record.date === dateStr)
         records.forEach((record) => {
           const taskItem = {
@@ -817,14 +800,21 @@ export default function TodoCalendarView({
     }
 
     return days
-  }, [viewMode, currentMonth, currentWeek, allTasks, dateNoteMap, filterQuery])
+  }, [
+    viewMode,
+    currentMonth,
+    currentWeek,
+    displayTasks,
+    dateNoteMap,
+    filterQuery,
+  ])
 
   const toggleTaskRecord = useCallback(
     async (taskId: number, date: string, logId: number) => {
       if (!groupId) return
 
       try {
-        const task = allTasks.find((t) => t.id === taskId)
+        const task = displayTasks.find((t) => t.id === taskId)
         if (!task) return
 
         const record = task.records.find((r) => r.id === logId)
@@ -841,7 +831,7 @@ export default function TodoCalendarView({
         alert((err as Error).message)
       }
     },
-    [allTasks, groupId, onTaskDataChange],
+    [displayTasks, groupId, onTaskDataChange],
   )
 
   const deleteTask = useCallback(
@@ -869,7 +859,7 @@ export default function TodoCalendarView({
     if (!editingTask || !groupId) return
 
     try {
-      const task = allTasks.find((t) => t.id === editingTask.taskId)
+      const task = displayTasks.find((t) => t.id === editingTask.taskId)
       if (!task) return
 
       const record = task.records.find((r) => r.id === editingTask.logId)
@@ -892,7 +882,7 @@ export default function TodoCalendarView({
       console.error('Error saving edit:', err)
       alert((err as Error).message)
     }
-  }, [editingTask, editValue, groupId, onTaskDataChange, allTasks])
+  }, [editingTask, editValue, groupId, onTaskDataChange, displayTasks])
 
   const handleEditCancel = useCallback(() => {
     setEditingTask(null)
@@ -916,7 +906,7 @@ export default function TodoCalendarView({
           date,
           done,
           groupId,
-          allTasks,
+          dropdownTasks,
           onTaskDataChange,
         )
         reset()
@@ -925,7 +915,7 @@ export default function TodoCalendarView({
         alert((err as Error).message)
       }
     },
-    [groupId, onTaskDataChange, allTasks],
+    [groupId, onTaskDataChange, dropdownTasks],
   )
 
   const handleTaskReorder = useCallback(
@@ -1193,7 +1183,7 @@ export default function TodoCalendarView({
                     <TaskInput
                       date={day.date}
                       done={false}
-                      availableTasks={allTasks}
+                      availableTasks={dropdownTasks}
                       onTaskSelect={handleTaskSelect}
                       groupId={groupId}
                       onTaskDataChange={onTaskDataChange}
@@ -1283,7 +1273,7 @@ export default function TodoCalendarView({
                     <TaskInput
                       date={day.date}
                       done={true}
-                      availableTasks={allTasks}
+                      availableTasks={dropdownTasks}
                       onTaskSelect={handleTaskSelect}
                       groupId={groupId}
                       onTaskDataChange={onTaskDataChange}

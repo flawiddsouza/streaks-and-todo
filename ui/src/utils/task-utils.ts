@@ -11,6 +11,112 @@ import {
 import confirmAsync from '../components/shared/confirmAsync'
 import { FLOATING_TASK_DATE } from '../config'
 
+/**
+ * Parse defaultExtraInfo field which may contain multiple items separated by newlines.
+ * Returns an array of non-empty trimmed strings.
+ * Handles both legacy single values and new multi-line values.
+ */
+export function parseDefaultExtraInfo(
+  value: string | null | undefined,
+): string[] {
+  if (!value) return []
+  return value
+    .split('\n')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
+/**
+ * Flat task structure used in dropdowns across all views
+ */
+export interface FlatTask {
+  id: number
+  task: string
+  groupName: string
+  defaultExtraInfo?: string | null
+  records: {
+    id: number
+    date: string
+    done: boolean
+    extraInfo?: string
+    sortOrder: number
+  }[]
+}
+
+/**
+ * Expand task data into flat task list, splitting tasks with multiple extra info items.
+ * Used by TodoGroupTable, TodoKanbanView, and TodoCalendarView for dropdown population.
+ */
+export function expandTasksForDropdown(taskData: TaskGroup[]): FlatTask[] {
+  return taskData.flatMap((group) =>
+    group.tasks.flatMap((task) => {
+      const extraInfoItems = parseDefaultExtraInfo(task.defaultExtraInfo)
+      if (extraInfoItems.length <= 1) {
+        // Single or no extra info - keep as-is
+        return [
+          {
+            id: task.id,
+            task: task.task,
+            groupName: group.name,
+            defaultExtraInfo: task.defaultExtraInfo,
+            records: task.records,
+          },
+        ]
+      }
+      // Multiple extra info items - create one entry per item
+      return extraInfoItems.map((extraInfo) => ({
+        id: task.id,
+        task: task.task,
+        groupName: group.name,
+        defaultExtraInfo: extraInfo,
+        records: task.records,
+      }))
+    }),
+  )
+}
+
+/**
+ * Filter tasks by query, matching both task name and defaultExtraInfo.
+ * Used by dropdown filters across all views.
+ */
+export function filterTasksByQuery(
+  tasks: FlatTask[],
+  query: string,
+): FlatTask[] {
+  if (!query.trim()) return []
+  const lowerQuery = query.toLowerCase()
+  return tasks.filter(
+    (item) =>
+      item.task.toLowerCase().includes(lowerQuery) ||
+      (item.defaultExtraInfo?.toLowerCase().includes(lowerQuery) ?? false),
+  )
+}
+
+/**
+ * Generate a unique key for a FlatTask in dropdown lists.
+ * Combines id with defaultExtraInfo to handle expanded tasks.
+ */
+export function getFlatTaskKey(item: FlatTask): string {
+  return `${item.id}-${item.defaultExtraInfo ?? ''}`
+}
+
+/**
+ * Get flat task list WITHOUT expanding defaultExtraInfo.
+ * Used for building task display lists (not for dropdown population).
+ * This prevents duplication when rendering tasks in done/todo columns.
+ */
+export function getTasksForDisplay(taskData: TaskGroup[]): FlatTask[] {
+  return taskData.flatMap((group) =>
+    group.tasks.map((task) => ({
+      id: task.id,
+      task: task.task,
+      groupName: group.name,
+      defaultExtraInfo: task.defaultExtraInfo,
+      records: task.records,
+    })),
+  )
+}
+
 export interface ParsedTaskInput {
   task: string
   extraInfo?: string

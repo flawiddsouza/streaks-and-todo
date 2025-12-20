@@ -20,7 +20,6 @@ import {
   fetchGroupTasks,
   setTaskLog,
   type TaskGroup,
-  type TaskRecord,
   updateGroupNote,
 } from '../../api'
 import type { GroupSettings } from '../shared/GroupSettingsModal'
@@ -30,6 +29,11 @@ import {
   addOrCreateTask,
   copyTaskToClipboard,
   deleteTaskLog,
+  expandTasksForDropdown,
+  type FlatTask,
+  filterTasksByQuery,
+  getFlatTaskKey,
+  getTasksForDisplay,
   handleAddFromPin,
   handleTaskSelection,
   processTaskInput,
@@ -53,14 +57,6 @@ interface TaskLog {
   extraInfo?: string
   sortOrder: number
   logId: number
-}
-
-interface FlatTask {
-  id: number
-  task: string
-  groupName: string
-  defaultExtraInfo?: string | null
-  records: TaskRecord[]
 }
 
 const generateDateRange = (dates: string[]): string[] => {
@@ -694,16 +690,11 @@ function TaskColumn({
                         }}
                       >
                         {inputValue.trim() !== '' &&
-                          availableTasks
-                            .filter((item) =>
-                              item.task
-                                .toLowerCase()
-                                .includes(inputValue.toLowerCase()),
-                            )
-                            .map((item, index) => (
+                          filterTasksByQuery(availableTasks, inputValue).map(
+                            (item, index) => (
                               <li
                                 {...getItemProps({ item, index })}
-                                key={item.id}
+                                key={getFlatTaskKey(item)}
                                 className={
                                   highlightedIndex === index
                                     ? 'highlighted'
@@ -718,7 +709,8 @@ function TaskColumn({
                                   </span>
                                 )}
                               </li>
-                            ))}
+                            ),
+                          )}
                       </ul>,
                       document.body,
                     )
@@ -758,17 +750,14 @@ export default function TodoGroupTable({
     extraInfo: string
   } | null>(null)
 
-  const allTasks = useMemo(() => {
-    return taskData.flatMap((group) =>
-      group.tasks.map((task) => ({
-        id: task.id,
-        task: task.task,
-        groupName: group.name,
-        defaultExtraInfo: task.defaultExtraInfo,
-        records: task.records,
-      })),
-    )
-  }, [taskData])
+  // Expanded tasks for dropdown suggestions (tasks with multi-line defaultExtraInfo get multiple entries)
+  const dropdownTasks = useMemo(
+    () => expandTasksForDropdown(taskData),
+    [taskData],
+  )
+
+  // Non-expanded tasks for building display lists (prevents duplicate rendering)
+  const displayTasks = useMemo(() => getTasksForDisplay(taskData), [taskData])
 
   const taskLookup = useMemo(() => buildTaskLookup(taskData), [taskData])
 
@@ -783,7 +772,7 @@ export default function TodoGroupTable({
 
   const dateRows = useMemo(() => {
     const dateSet = new Set<string>()
-    allTasks.forEach((task) => {
+    displayTasks.forEach((task) => {
       task.records.forEach((record) => dateSet.add(record.date))
     })
     const allDates = generateDateRange(Array.from(dateSet))
@@ -793,7 +782,7 @@ export default function TodoGroupTable({
       const doneTasks: TaskLog[] = []
       const todoTasks: TaskLog[] = []
 
-      allTasks.forEach((task) => {
+      displayTasks.forEach((task) => {
         const records = task.records.filter((record) => record.date === date)
         records.forEach((record) => {
           const taskItem = {
@@ -855,7 +844,7 @@ export default function TodoGroupTable({
     }
 
     return rows
-  }, [allTasks, dateNoteMap, filterQuery, settings])
+  }, [displayTasks, dateNoteMap, filterQuery, settings])
 
   // Keep previous filterQuery to detect clearing of the filter
   const prevFilterRef = useRef<string>(filterQuery)
@@ -1046,7 +1035,7 @@ export default function TodoGroupTable({
           date,
           done,
           groupId,
-          allTasks,
+          dropdownTasks,
           onTaskDataChange,
           addTaskToCell, // Pass TodoGroupTable's optimized function
         )
@@ -1056,7 +1045,7 @@ export default function TodoGroupTable({
         alert((err as Error).message)
       }
     },
-    [groupId, allTasks, onTaskDataChange, addTaskToCell],
+    [groupId, dropdownTasks, onTaskDataChange, addTaskToCell],
   )
 
   const handleKeyDown = useCallback(
@@ -1362,7 +1351,7 @@ export default function TodoGroupTable({
             : ''
 
           // Show all tasks in suggestions; duplicates are allowed.
-          const availableTasks = allTasks
+          const availableTasks = dropdownTasks
 
           return (
             <>

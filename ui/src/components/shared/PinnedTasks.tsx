@@ -251,7 +251,11 @@ export default function PinnedTasks({
           const sourceExtraInfo = source.data.extraInfo as string | undefined
 
           // Add to the end of this group
-          await addTaskToPinGroup(pinGroupId, sourceTaskId, sourceExtraInfo ?? null)
+          await addTaskToPinGroup(
+            pinGroupId,
+            sourceTaskId,
+            sourceExtraInfo ?? null,
+          )
           await removeTaskFromPinGroup(sourcePinGroupId, sourcePinId)
           await refresh()
         },
@@ -303,8 +307,7 @@ export default function PinnedTasks({
         dropTargetForElements({
           element: el,
           canDrop: ({ source }) =>
-            source.data.type === 'pin-item' &&
-            source.data.pinId !== item.id,
+            source.data.type === 'pin-item' && source.data.pinId !== item.id,
           onDragEnter: () => setOver(true),
           onDragLeave: () => setOver(false),
           onDrop: async ({ source }) => {
@@ -339,7 +342,9 @@ export default function PinnedTasks({
                   const newTasks = [...updatedPinGroup.tasks]
                   // Find the newly added task (should be the one with highest sortOrder or last)
                   const newTaskIdx = newTasks.findIndex(
-                    (t) => t.taskId === sourceTaskId && !items.some((it) => it.id === t.id),
+                    (t) =>
+                      t.taskId === sourceTaskId &&
+                      !items.some((it) => it.id === t.id),
                   )
                   if (newTaskIdx >= 0 && newTaskIdx !== targetIndex) {
                     const [moved] = newTasks.splice(newTaskIdx, 1)

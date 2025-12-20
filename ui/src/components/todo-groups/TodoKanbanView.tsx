@@ -22,6 +22,10 @@ import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   copyTaskToClipboard,
   deleteTaskLog,
+  expandTasksForDropdown,
+  type FlatTask,
+  filterTasksByQuery,
+  getFlatTaskKey,
   handleAddFromPin,
   handleTaskSelection,
   processTaskInput,
@@ -53,20 +57,6 @@ interface KanbanCard {
 interface DateGroup {
   date: string
   cards: KanbanCard[]
-}
-
-interface FlatTask {
-  id: number
-  task: string
-  groupName: string
-  defaultExtraInfo?: string | null
-  records: {
-    id: number
-    date: string
-    done: boolean
-    extraInfo?: string
-    sortOrder: number
-  }[]
 }
 
 interface DropZoneProps {
@@ -478,12 +468,7 @@ function KanbanInput({
           }
         }
 
-        const filteredTasks =
-          inputValue.trim() !== ''
-            ? availableTasks.filter((item) =>
-                item.task.toLowerCase().includes(inputValue.toLowerCase()),
-              )
-            : []
+        const filteredTasks = filterTasksByQuery(availableTasks, inputValue)
 
         return (
           <div className="kanban-input-wrap">
@@ -527,7 +512,7 @@ function KanbanInput({
                     {filteredTasks.map((item, index) => (
                       <li
                         {...getItemProps({ item, index })}
-                        key={item.id}
+                        key={getFlatTaskKey(item)}
                         className={
                           highlightedIndex === index ? 'highlighted' : ''
                         }
@@ -1142,17 +1127,7 @@ export default function TodoKanbanView({
     [groupId, onTaskDataChange],
   )
 
-  const allTasks = useMemo(() => {
-    return taskData.flatMap((group) =>
-      group.tasks.map((task) => ({
-        id: task.id,
-        task: task.task,
-        groupName: group.name,
-        defaultExtraInfo: task.defaultExtraInfo,
-        records: task.records,
-      })),
-    )
-  }, [taskData])
+  const allTasks = useMemo(() => expandTasksForDropdown(taskData), [taskData])
 
   const handleTaskSelect = useCallback(
     async (
