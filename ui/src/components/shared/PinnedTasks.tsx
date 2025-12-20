@@ -214,6 +214,60 @@ export default function PinnedTasks({
     [refresh],
   )
 
+  // Container for pin items that accepts drops from other pin groups
+  const DroppablePinItemsContainer = ({
+    pinGroupId,
+    children,
+  }: {
+    pinGroupId: number
+    children: React.ReactNode
+  }) => {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [over, setOver] = useState(false)
+
+    useEffect(() => {
+      const el = containerRef.current
+      if (!el) return
+      return dropTargetForElements({
+        element: el,
+        canDrop: ({ source }) =>
+          source.data.type === 'pin-item' &&
+          source.data.pinGroupId !== pinGroupId,
+        onDragEnter: () => setOver(true),
+        onDragLeave: () => setOver(false),
+        onDrop: async ({ source, location }) => {
+          setOver(false)
+
+          // If drop landed on a child item, let the item handle it (avoid duplication)
+          const dropTargets = location.current.dropTargets
+          if (dropTargets.length > 1) {
+            // There's a more specific (inner) drop target - the item will handle it
+            return
+          }
+
+          const sourcePinId = source.data.pinId as number
+          const sourcePinGroupId = source.data.pinGroupId as number
+          const sourceTaskId = source.data.taskId as number
+          const sourceExtraInfo = source.data.extraInfo as string | undefined
+
+          // Add to the end of this group
+          await addTaskToPinGroup(pinGroupId, sourceTaskId, sourceExtraInfo ?? null)
+          await removeTaskFromPinGroup(sourcePinGroupId, sourcePinId)
+          await refresh()
+        },
+      })
+    }, [pinGroupId])
+
+    return (
+      <div
+        ref={containerRef}
+        className={`pin-items ${over ? 'drag-over' : ''}`}
+      >
+        {children}
+      </div>
+    )
+  }
+
   const DraggablePinItem = ({
     pinGroupId,
     item,
@@ -250,14 +304,61 @@ export default function PinnedTasks({
           element: el,
           canDrop: ({ source }) =>
             source.data.type === 'pin-item' &&
-            source.data.pinGroupId === pinGroupId &&
             source.data.pinId !== item.id,
           onDragEnter: () => setOver(true),
           onDragLeave: () => setOver(false),
           onDrop: async ({ source }) => {
             setOver(false)
             const sourcePinId = source.data.pinId as number
+            const sourcePinGroupId = source.data.pinGroupId as number
             if (sourcePinId === item.id) return
+
+            // Cross-group drop: move the task to this group at target position
+            if (sourcePinGroupId !== pinGroupId) {
+              const sourceTaskId = source.data.taskId as number
+              const sourceExtraInfo = source.data.extraInfo as
+                | string
+                | undefined
+              const targetIndex = items.findIndex((t) => t.id === item.id)
+
+              // Add to target group first (will be added at end)
+              await addTaskToPinGroup(
+                pinGroupId,
+                sourceTaskId,
+                sourceExtraInfo ?? null,
+              )
+              await removeTaskFromPinGroup(sourcePinGroupId, sourcePinId)
+
+              // Fetch updated data and reorder to place at correct position
+              const updated = await fetchGroupTasks(parentGroupId)
+              if (updated) {
+                const updatedPinGroup = updated.pins?.find(
+                  (pg) => pg.id === pinGroupId,
+                )
+                if (updatedPinGroup && targetIndex >= 0) {
+                  const newTasks = [...updatedPinGroup.tasks]
+                  // Find the newly added task (should be the one with highest sortOrder or last)
+                  const newTaskIdx = newTasks.findIndex(
+                    (t) => t.taskId === sourceTaskId && !items.some((it) => it.id === t.id),
+                  )
+                  if (newTaskIdx >= 0 && newTaskIdx !== targetIndex) {
+                    const [moved] = newTasks.splice(newTaskIdx, 1)
+                    newTasks.splice(targetIndex, 0, moved)
+                    const payload = newTasks.map((t, i) => ({
+                      pinId: t.id,
+                      sortOrder: i,
+                    }))
+                    await reorderPinGroupTasks(pinGroupId, payload)
+                  }
+                }
+                onRefresh(updated)
+              } else {
+                await refresh()
+              }
+              return
+            }
+
+            // Same-group reorder
             const arr = [...items]
             const sIdx = arr.findIndex((t) => t.id === sourcePinId)
             const tIdx = arr.findIndex((t) => t.id === item.id)
@@ -273,7 +374,7 @@ export default function PinnedTasks({
           },
         }),
       )
-    }, [item, pinGroupId, items])
+    }, [item, pinGroupId, items, parentGroupId, onRefresh])
 
     return (
       <div
@@ -336,7 +437,7 @@ export default function PinnedTasks({
             await refresh()
           }}
         >
-          <div className="pin-items">
+          <DroppablePinItemsContainer pinGroupId={pg.id}>
             {pg.tasks.map((it) => (
               <DraggablePinItem
                 key={`${pg.id}-${it.id}`}
@@ -345,7 +446,7 @@ export default function PinnedTasks({
                 items={pg.tasks}
               />
             ))}
-          </div>
+          </DroppablePinItemsContainer>
           <Downshift<{ id: number; task: string }>
             inputValue={addingTaskInput[pg.id] || ''}
             onInputValueChange={(v) =>

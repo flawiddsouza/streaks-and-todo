@@ -84,6 +84,20 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 6px;
+  min-height: 32px;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.pin-items:empty {
+  border: 1px dashed #d1d5db;
+  background: #fafafa;
+}
+
+.pin-items.drag-over {
+  background: #eff6ff;
+  outline: 2px dashed #60a5fa;
 }
 
 .pin-task {
