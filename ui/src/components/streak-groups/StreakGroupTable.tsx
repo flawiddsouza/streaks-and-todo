@@ -399,6 +399,56 @@ export default function StreakGroupTable({
     }
   }
 
+  const getPreviousDateNote = (
+    streakName: string,
+    currentDate: string,
+  ): string | null => {
+    const currentIndex = dateRows.findIndex((row) => row.date === currentDate)
+    if (currentIndex <= 0) return null
+
+    const previousRow = dateRows[currentIndex - 1]
+    const recordData = previousRow.records.get(streakName)
+    const note = recordData?.note?.trim()
+
+    return note && note.length > 0 ? note : null
+  }
+
+  const insertTextAtCursor = (element: HTMLElement, textToInsert: string) => {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) {
+      element.textContent = (element.textContent || '') + textToInsert
+      return
+    }
+
+    const range = selection.getRangeAt(0)
+    range.deleteContents()
+
+    const textNode = document.createTextNode(textToInsert)
+    range.insertNode(textNode)
+
+    range.setStartAfter(textNode)
+    range.setEndAfter(textNode)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+
+  const handleCopyPreviousNote = (
+    event: React.KeyboardEvent,
+    streakName: string,
+    currentDate: string,
+  ) => {
+    if (event.key === ';' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+
+      const previousNote = getPreviousDateNote(streakName, currentDate)
+      const noteElement = event.currentTarget as HTMLElement
+
+      if (previousNote) {
+        insertTextAtCursor(noteElement, previousNote)
+      }
+    }
+  }
+
   const getRecordForCell = useCallback(
     (streakName: string, date: string) => {
       const dateRow = dateRows.find((row) => row.date === date)
@@ -756,6 +806,12 @@ export default function StreakGroupTable({
                               }
                             }}
                             onKeyDown={(e) => {
+                              handleCopyPreviousNote(
+                                e,
+                                streak.name,
+                                dateRow.date,
+                              )
+
                               if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault()
                                 e.currentTarget.blur()
