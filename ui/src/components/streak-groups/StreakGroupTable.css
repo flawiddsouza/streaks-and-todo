@@ -183,3 +183,17 @@
   border: 1px solid #ffc107;
   color: #333;
 }
+
+/* Streak metadata display */
+.streak-broken,
+.streak-gap {
+  color: #666;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.streak-cell:hover .streak-broken,
+.streak-cell:hover .streak-gap {
+  opacity: 1;
+}

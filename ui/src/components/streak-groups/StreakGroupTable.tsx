@@ -208,6 +208,68 @@ export default function StreakGroupTable({
     [allStreaks, dateRows],
   )
 
+  // Pre-compute streak metadata for display and tooltips
+  const streakMetadata = useMemo(() => {
+    const metadata = new Map<
+      string,
+      Map<string, { displayValue: number | null; tooltipText: string }>
+    >()
+
+    allStreaks.forEach((streak) => {
+      const dateMap = new Map<
+        string,
+        { displayValue: number | null; tooltipText: string }
+      >()
+      let currentStreak = 0
+      let lastStreakBeforeBreak = 0
+      let gapCounter = 0
+
+      dateRows.forEach((row, index) => {
+        const record = row.records.get(streak.name)
+        const isDone = record?.done ?? false
+        const prevRow = index > 0 ? dateRows[index - 1] : null
+        const wasPrevDone = prevRow?.records.get(streak.name)?.done ?? false
+
+        if (isDone) {
+          currentStreak++
+          gapCounter = 0
+          dateMap.set(row.date, {
+            displayValue: null,
+            tooltipText: `Day ${currentStreak} of current streak`,
+          })
+        } else {
+          if (wasPrevDone) {
+            // First empty cell after streak = break point
+            lastStreakBeforeBreak = currentStreak
+            gapCounter = 1
+            dateMap.set(row.date, {
+              displayValue: lastStreakBeforeBreak,
+              tooltipText: `Broke ${lastStreakBeforeBreak}-day streak`,
+            })
+            currentStreak = 0
+          } else if (lastStreakBeforeBreak > 0) {
+            // Continuing gap
+            gapCounter++
+            dateMap.set(row.date, {
+              displayValue: -gapCounter,
+              tooltipText: `Day ${gapCounter} of gap (broke ${lastStreakBeforeBreak}-day streak)`,
+            })
+          } else {
+            // No recent streak
+            dateMap.set(row.date, {
+              displayValue: null,
+              tooltipText: 'No recent activity',
+            })
+          }
+        }
+      })
+
+      metadata.set(streak.name, dateMap)
+    })
+
+    return metadata
+  }, [allStreaks, dateRows])
+
   const streakLookup = useMemo(() => {
     const lookup = new Map<
       string,
@@ -737,11 +799,17 @@ export default function StreakGroupTable({
                 const done = recordData?.done ?? false
                 const hasNote =
                   recordData?.note && recordData.note.trim().length > 0
+                const metadata = streakMetadata
+                  .get(streak.name)
+                  ?.get(dateRow.date)
+                const displayValue = metadata?.displayValue
                 const doneClass = done ? 'streak-cell-present' : ''
+
                 return (
                   <td
                     key={streak.name}
                     className={`table-cell streak-cell ${rowBackgroundClass} ${doneClass}`}
+                    title={metadata?.tooltipText}
                     onClick={(event) =>
                       handleStreakCellClick(event, streak.name, dateRow.date)
                     }
@@ -762,7 +830,19 @@ export default function StreakGroupTable({
                     onTouchCancel={handleStreakCellTouchCancel}
                     style={{ cursor: 'pointer' }}
                   >
-                    {done ? 'x' : ''}
+                    {done ? (
+                      'x'
+                    ) : displayValue !== null && displayValue !== 0 ? (
+                      <span
+                        className={
+                          displayValue > 0 ? 'streak-broken' : 'streak-gap'
+                        }
+                      >
+                        {displayValue}
+                      </span>
+                    ) : (
+                      ''
+                    )}
                     {hasNote && <div className="note-earmark" />}
                   </td>
                 )
