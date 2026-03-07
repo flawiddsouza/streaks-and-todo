@@ -21,6 +21,7 @@ import {
   setTaskLog,
   type TaskGroup,
   updateGroupNote,
+  updateTask,
 } from '../../api'
 import type { GroupSettings } from '../shared/GroupSettingsModal'
 import './TodoGroupTable.css'
@@ -28,6 +29,7 @@ import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   addOrCreateTask,
   copyTaskToClipboard,
+  createOneOffTaskAndAdd,
   deleteTaskLog,
   expandTasksForDropdown,
   type FlatTask,
@@ -57,6 +59,7 @@ interface TaskLog {
   extraInfo?: string
   sortOrder: number
   logId: number
+  isOneOff?: boolean
 }
 
 const generateDateRange = (dates: string[]): string[] => {
@@ -219,7 +222,8 @@ interface TaskItemProps {
     taskId: number,
     date: string,
     logId: number,
-    currentExtraInfo: string,
+    currentValue: string,
+    isOneOff?: boolean,
   ) => void
   isEditing: boolean
   editValue: string
@@ -235,6 +239,7 @@ interface TaskItemProps {
     targetDone?: boolean,
   ) => void
   filterQuery?: string
+  isOneOff?: boolean
 }
 
 function TaskItemComponent({
@@ -251,6 +256,7 @@ function TaskItemComponent({
   onEditCancel,
   onReorder,
   filterQuery = '',
+  isOneOff = false,
 }: TaskItemProps) {
   const dragRef = useRef<HTMLDivElement>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -325,23 +331,43 @@ function TaskItemComponent({
   if (isEditing) {
     return (
       <div className="todo-item">
-        <input
-          type="text"
-          className="task-edit-input"
-          value={editValue}
-          onChange={(e) => onEditChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              onEditSave()
-            } else if (e.key === 'Escape') {
-              onEditCancel()
-            }
-          }}
-          onBlur={onEditSave}
-          placeholder="Extra info (optional)"
-          spellCheck={false}
-          ref={(input) => input?.focus()}
-        />
+        {isOneOff ? (
+          <textarea
+            className="task-edit-input todo-multiline-textarea"
+            value={editValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                onEditSave()
+              } else if (e.key === 'Escape') {
+                onEditCancel()
+              }
+            }}
+            onBlur={onEditSave}
+            placeholder="Edit task"
+            spellCheck={false}
+            ref={(el) => el?.focus()}
+          />
+        ) : (
+          <input
+            type="text"
+            className="task-edit-input"
+            value={editValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onEditSave()
+              } else if (e.key === 'Escape') {
+                onEditCancel()
+              }
+            }}
+            onBlur={onEditSave}
+            placeholder="Extra info (optional)"
+            spellCheck={false}
+            ref={(input) => input?.focus()}
+          />
+        )}
       </div>
     )
   }
@@ -356,8 +382,14 @@ function TaskItemComponent({
         type="button"
         className="todo-text"
         onClick={() => onToggle(taskLog.taskId, date, taskLog.logId)}
+        style={
+          isOneOff ? { whiteSpace: 'pre-wrap', textAlign: 'left' } : undefined
+        }
       >
         {(() => {
+          if (isOneOff) {
+            return taskLog.task
+          }
           const { text } = formatTaskWithExtraInfo(
             taskLog.task,
             taskLog.extraInfo,
@@ -386,9 +418,15 @@ function TaskItemComponent({
         className="task-action-btn edit-task-btn"
         onClick={(e) => {
           e.stopPropagation()
-          onEdit(taskLog.taskId, date, taskLog.logId, taskLog.extraInfo || '')
+          onEdit(
+            taskLog.taskId,
+            date,
+            taskLog.logId,
+            isOneOff ? taskLog.task : taskLog.extraInfo || '',
+            isOneOff,
+          )
         }}
-        title="Edit extra info"
+        title={isOneOff ? 'Edit task' : 'Edit extra info'}
       >
         ✏️
       </button>
@@ -425,13 +463,15 @@ interface TaskColumnProps {
     taskId: number,
     date: string,
     logId: number,
-    currentExtraInfo: string,
+    currentValue: string,
+    isOneOff?: boolean,
   ) => void
   editingTask: {
     taskId: number
     date: string
     logId: number
     extraInfo: string
+    isOneOff?: boolean
   } | null
   onEditChange: (value: string) => void
   onEditSave: () => void
@@ -457,6 +497,7 @@ interface TaskColumnProps {
     isDoneColumn: boolean,
     pin: { taskId: number; extraInfo?: string },
   ) => void
+  onCreateOneOff: (text: string, done: boolean) => void
   filterQuery?: string
 }
 
@@ -479,9 +520,23 @@ function TaskColumn({
   isDone,
   onPastePinned,
   onAddFromPin,
+  onCreateOneOff,
   filterQuery = '',
 }: TaskColumnProps) {
   const [inputValue, setInputValue] = useState('')
+  const [isMultiLineInput, setIsMultiLineInput] = useState(false)
+  const [multiLineText, setMultiLineText] = useState('')
+  const multiLineCursorPos = useRef<number>(0)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (isMultiLineInput && textareaRef.current) {
+      const el = textareaRef.current
+      el.focus()
+      const p = multiLineCursorPos.current
+      el.setSelectionRange(p, p)
+    }
+  }, [isMultiLineInput])
   const listRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLUListElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -571,6 +626,7 @@ function TaskColumn({
                 onEditCancel={onEditCancel}
                 onReorder={onReorder}
                 filterQuery={filterQuery}
+                isOneOff={taskLog.isOneOff}
               />
 
               {/* Drop zone after each item */}
@@ -643,32 +699,83 @@ function TaskColumn({
           return (
             <div className="todo-input-wrap">
               <div className="todo-input-inner">
-                <input
-                  {...getInputProps({
-                    placeholder,
-                    className: 'todo-combobox-input',
-                    enterKeyHint: 'enter',
-                    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                      if (e.key === 'Home' || e.key === 'End') {
-                        // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
-                        ;(e.nativeEvent as any).preventDownshiftDefault = true
+                {isMultiLineInput ? (
+                  <textarea
+                    ref={textareaRef}
+                    value={multiLineText}
+                    onChange={(e) => setMultiLineText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        if (multiLineText.trim()) {
+                          onCreateOneOff(multiLineText.trim(), isDone)
+                        }
+                        setIsMultiLineInput(false)
+                        setMultiLineText('')
                       }
-                      // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
-                      if (
-                        e.key === 'Enter' &&
-                        isOpen &&
-                        highlightedIndex != null
-                      ) {
-                        return
+                      if (e.key === 'Escape') {
+                        setIsMultiLineInput(false)
+                        setMultiLineText('')
                       }
-                      if (e.key === 'Enter') {
-                        onEnter(inputValue, () => setInputValue(''))
-                      }
-                    },
-                    spellCheck: false,
-                  })}
-                  ref={inputRef}
-                />
+                    }}
+                    placeholder="Multi-line task — Enter to save, Shift+Enter for new line, Esc to cancel"
+                    className="todo-multiline-textarea"
+                    rows={3}
+                    spellCheck={false}
+                  />
+                ) : (
+                  <input
+                    {...getInputProps({
+                      placeholder,
+                      className: 'todo-combobox-input',
+                      enterKeyHint: 'enter',
+                      onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                        if (e.key === 'Home' || e.key === 'End') {
+                          // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
+                          ;(e.nativeEvent as any).preventDownshiftDefault = true
+                        }
+                        // If a Downshift item is highlighted and menu is open, let Downshift handle Enter
+                        if (
+                          e.key === 'Enter' &&
+                          isOpen &&
+                          highlightedIndex != null
+                        ) {
+                          return
+                        }
+                        if (e.key === 'Enter' && e.shiftKey) {
+                          e.preventDefault()
+                          const pos =
+                            (e.target as HTMLInputElement).selectionStart ??
+                            inputValue.length
+                          const newText =
+                            inputValue.slice(0, pos) +
+                            '\n' +
+                            inputValue.slice(pos)
+                          multiLineCursorPos.current = pos + 1
+                          setIsMultiLineInput(true)
+                          setMultiLineText(newText)
+                          setInputValue('')
+                          return
+                        }
+                        if (e.key === 'Enter') {
+                          onEnter(inputValue, () => setInputValue(''))
+                        }
+                      },
+                      onPaste: (e: React.ClipboardEvent<HTMLInputElement>) => {
+                        const text = e.clipboardData?.getData('text') || ''
+                        if (text.includes('\n')) {
+                          e.preventDefault()
+                          const trimmed = text.trim()
+                          multiLineCursorPos.current = trimmed.length
+                          setMultiLineText(trimmed)
+                          setIsMultiLineInput(true)
+                        }
+                      },
+                      spellCheck: false,
+                    })}
+                    ref={inputRef}
+                  />
+                )}
                 {/* Render menu into a portal so it does not affect table/row layout */}
                 {isOpen && menuPos
                   ? createPortal(
@@ -748,6 +855,7 @@ export default function TodoGroupTable({
     date: string
     logId: number
     extraInfo: string
+    isOneOff?: boolean
   } | null>(null)
 
   // Expanded tasks for dropdown suggestions (tasks with multi-line defaultExtraInfo get multiple entries)
@@ -791,6 +899,7 @@ export default function TodoGroupTable({
             extraInfo: record.extraInfo,
             sortOrder: record.sortOrder,
             logId: record.id,
+            isOneOff: task.isOneOff,
           }
 
           if (record.done) {
@@ -1158,8 +1267,14 @@ export default function TodoGroupTable({
   )
 
   const handleEditTask = useCallback(
-    (taskId: number, date: string, logId: number, currentExtraInfo: string) => {
-      setEditingTask({ taskId, date, logId, extraInfo: currentExtraInfo })
+    (
+      taskId: number,
+      date: string,
+      logId: number,
+      currentValue: string,
+      isOneOff?: boolean,
+    ) => {
+      setEditingTask({ taskId, date, logId, extraInfo: currentValue, isOneOff })
     },
     [],
   )
@@ -1172,16 +1287,38 @@ export default function TodoGroupTable({
     if (!editingTask) return
 
     try {
-      await updateTaskExtraInfo(
-        editingTask.taskId,
-        editingTask.date,
-        editingTask.logId,
-        editingTask.extraInfo,
-      )
+      if (editingTask.isOneOff) {
+        const newName = editingTask.extraInfo.trim()
+        if (!newName) return
+        const taskLocation = taskLookup.get(editingTask.taskId)
+        await updateTask(editingTask.taskId, { task: newName })
+        if (taskLocation) {
+          const { groupIndex, taskIndex } = taskLocation
+          onTaskDataChange((prev) => {
+            const newData = [...prev]
+            const targetGroup = { ...newData[groupIndex] }
+            const targetTasks = [...targetGroup.tasks]
+            targetTasks[taskIndex] = {
+              ...targetTasks[taskIndex],
+              task: newName,
+            }
+            targetGroup.tasks = targetTasks
+            newData[groupIndex] = targetGroup
+            return newData
+          })
+        }
+      } else {
+        await updateTaskExtraInfo(
+          editingTask.taskId,
+          editingTask.date,
+          editingTask.logId,
+          editingTask.extraInfo,
+        )
+      }
     } finally {
       setEditingTask(null)
     }
-  }, [editingTask, updateTaskExtraInfo])
+  }, [editingTask, updateTaskExtraInfo, taskLookup, onTaskDataChange])
 
   const handleEditCancel = useCallback(() => {
     setEditingTask(null)
@@ -1396,6 +1533,18 @@ export default function TodoGroupTable({
                     )
                     reset()
                   }}
+                  onCreateOneOff={(text, done) => {
+                    if (!groupId) return
+                    createOneOffTaskAndAdd(
+                      groupId,
+                      text,
+                      dateRow.date,
+                      done,
+                      onTaskDataChange,
+                    ).catch((err) =>
+                      console.error('Error creating one-off task:', err),
+                    )
+                  }}
                   onToggle={toggleTaskRecord}
                   onDelete={handleDeleteClick}
                   onCopy={handleCopyTask}
@@ -1439,6 +1588,18 @@ export default function TodoGroupTable({
                       (_val) => {},
                     )
                     reset()
+                  }}
+                  onCreateOneOff={(text, done) => {
+                    if (!groupId) return
+                    createOneOffTaskAndAdd(
+                      groupId,
+                      text,
+                      dateRow.date,
+                      done,
+                      onTaskDataChange,
+                    ).catch((err) =>
+                      console.error('Error creating one-off task:', err),
+                    )
                   }}
                   onToggle={toggleTaskRecord}
                   onDelete={handleDeleteClick}

@@ -34,6 +34,7 @@ export interface FlatTask {
   task: string
   groupName: string
   defaultExtraInfo?: string | null
+  isOneOff?: boolean
   records: {
     id: number
     date: string
@@ -46,10 +47,12 @@ export interface FlatTask {
 /**
  * Expand task data into flat task list, splitting tasks with multiple extra info items.
  * Used by TodoGroupTable, TodoKanbanView, and TodoCalendarView for dropdown population.
+ * One-off tasks are excluded from the dropdown (they are not reusable).
  */
 export function expandTasksForDropdown(taskData: TaskGroup[]): FlatTask[] {
   return taskData.flatMap((group) =>
     group.tasks.flatMap((task) => {
+      if (task.isOneOff) return []
       const extraInfoItems = parseDefaultExtraInfo(task.defaultExtraInfo)
       if (extraInfoItems.length <= 1) {
         // Single or no extra info - keep as-is
@@ -112,6 +115,7 @@ export function getTasksForDisplay(taskData: TaskGroup[]): FlatTask[] {
       task: task.task,
       groupName: group.name,
       defaultExtraInfo: task.defaultExtraInfo,
+      isOneOff: task.isOneOff,
       records: task.records,
     })),
   )
@@ -262,6 +266,57 @@ export async function createTaskAndAddToGroup(
   } catch (err) {
     throw new Error(`Failed to create task: ${(err as Error).message}`)
   }
+}
+
+/**
+ * Create a one-off (non-recurring) task with multi-line text for a specific date.
+ * One-off tasks are never reused, don't appear in Manage Tasks, and only show
+ * on the date they were created.
+ */
+export async function createOneOffTaskAndAdd(
+  groupId: number,
+  text: string,
+  date: string,
+  done: boolean,
+  onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>,
+): Promise<void> {
+  if (!groupId || !text.trim()) return
+
+  const { task, log } = await createTaskAndLog(
+    groupId,
+    text.trim(),
+    date,
+    done,
+    {
+      isOneOff: true,
+    },
+  )
+
+  onTaskDataChange((prev) => {
+    const copy = [...prev]
+    if (!copy[0]) return copy
+    const group = { ...copy[0] }
+    group.tasks = [
+      ...group.tasks,
+      {
+        id: task.id,
+        task: task.task,
+        defaultExtraInfo: task.defaultExtraInfo,
+        isOneOff: true,
+        records: [
+          {
+            id: log.id,
+            date: log.date,
+            done: log.done,
+            extraInfo: log.extraInfo || undefined,
+            sortOrder: log.sortOrder,
+          },
+        ],
+      },
+    ]
+    copy[0] = group
+    return copy
+  })
 }
 
 /**

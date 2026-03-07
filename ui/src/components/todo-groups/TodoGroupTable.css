@@ -135,6 +135,21 @@
   box-sizing: border-box;
 }
 
+.todo-multiline-textarea {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  border-radius: 2px;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 56px;
+}
+
 .todo-combobox-menu {
   position: absolute;
   z-index: 10;

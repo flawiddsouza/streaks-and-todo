@@ -15,10 +15,16 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../../api'
+import {
+  fetchGroupTasks,
+  setTaskLog,
+  type TaskGroup,
+  updateTask,
+} from '../../api'
 import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   copyTaskToClipboard,
+  createOneOffTaskAndAdd,
   deleteTaskLog,
   expandTasksForDropdown,
   type FlatTask,
@@ -134,6 +140,7 @@ interface DayData {
     extraInfo?: string
     logId: number
     sortOrder: number
+    isOneOff?: boolean
   }[]
   todoTasks: {
     taskId: number
@@ -141,6 +148,7 @@ interface DayData {
     extraInfo?: string
     logId: number
     sortOrder: number
+    isOneOff?: boolean
   }[]
   note: string
 }
@@ -168,6 +176,7 @@ function DraggableTaskItem({
     extraInfo?: string
     logId: number
     sortOrder: number
+    isOneOff?: boolean
   }
   date: string
   isEditing: boolean
@@ -285,21 +294,41 @@ function DraggableTaskItem({
       />
       {isEditing ? (
         <div className="calendar-task-edit">
-          <input
-            type="text"
-            value={editValue}
-            onChange={(e) => onEditChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onEditSave()
-              if (e.key === 'Escape') onEditCancel()
-            }}
-            onBlur={onEditSave}
-            onClick={(e) => e.stopPropagation()}
-            className="calendar-task-edit-input"
-            placeholder="Extra info (optional)"
-            spellCheck={false}
-            ref={(input) => input?.focus()}
-          />
+          {task.isOneOff ? (
+            <textarea
+              value={editValue}
+              onChange={(e) => onEditChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  onEditSave()
+                }
+                if (e.key === 'Escape') onEditCancel()
+              }}
+              onBlur={onEditSave}
+              onClick={(e) => e.stopPropagation()}
+              className="calendar-task-edit-input calendar-multiline-textarea"
+              placeholder="Edit task"
+              spellCheck={false}
+              ref={(el) => el?.focus()}
+            />
+          ) : (
+            <input
+              type="text"
+              value={editValue}
+              onChange={(e) => onEditChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onEditSave()
+                if (e.key === 'Escape') onEditCancel()
+              }}
+              onBlur={onEditSave}
+              onClick={(e) => e.stopPropagation()}
+              className="calendar-task-edit-input"
+              placeholder="Extra info (optional)"
+              spellCheck={false}
+              ref={(input) => input?.focus()}
+            />
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -446,6 +475,10 @@ function TaskInput({
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
 }) {
   const [inputValue, setInputValue] = useState('')
+  const [isMultiLineInput, setIsMultiLineInput] = useState(false)
+  const [multiLineText, setMultiLineText] = useState('')
+  const multiLineCursorPos = useRef<number>(0)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const menuRef = useRef<HTMLUListElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -454,6 +487,15 @@ function TaskInput({
     left: number
     width: number
   } | null>(null)
+
+  useEffect(() => {
+    if (isMultiLineInput && textareaRef.current) {
+      const el = textareaRef.current
+      el.focus()
+      const p = multiLineCursorPos.current
+      el.setSelectionRange(p, p)
+    }
+  }, [isMultiLineInput])
 
   useEffect(() => {
     const updatePos = () => {
@@ -491,6 +533,18 @@ function TaskInput({
   ): Promise<void> => {
     // Stop all key events from bubbling to parent button
     e.stopPropagation()
+
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault()
+      const pos =
+        (e.target as HTMLInputElement).selectionStart ?? inputValue.length
+      const newText = `${inputValue.slice(0, pos)}\n${inputValue.slice(pos)}`
+      multiLineCursorPos.current = pos + 1
+      setIsMultiLineInput(true)
+      setMultiLineText(newText)
+      setInputValue('')
+      return
+    }
 
     if (e.key === 'Enter') {
       const trimmedValue = inputValue.trim()
@@ -578,27 +632,77 @@ function TaskInput({
 
         return (
           <div className="calendar-task-input-wrap">
-            <input
-              {...getInputProps({
-                placeholder: 'Add task...',
-                className: 'calendar-task-input',
-                onClick: (e: React.MouseEvent) => e.stopPropagation(),
-                onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                  if (isOpen && highlightedIndex != null && e.key === 'Enter') {
-                    return // Let Downshift handle selection
+            {isMultiLineInput ? (
+              <textarea
+                ref={textareaRef}
+                value={multiLineText}
+                onChange={(e) => setMultiLineText(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (multiLineText.trim() && groupId) {
+                      createOneOffTaskAndAdd(
+                        groupId,
+                        multiLineText.trim(),
+                        date,
+                        done,
+                        onTaskDataChange,
+                      ).catch((err) =>
+                        console.error('Error creating one-off task:', err),
+                      )
+                    }
+                    setIsMultiLineInput(false)
+                    setMultiLineText('')
                   }
-                  handleKeyDown(e)
-                },
-                onKeyUp: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                  e.stopPropagation()
-                },
-                onKeyPress: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                  e.stopPropagation()
-                },
-                spellCheck: false,
-              })}
-              ref={inputRef}
-            />
+                  if (e.key === 'Escape') {
+                    setIsMultiLineInput(false)
+                    setMultiLineText('')
+                  }
+                }}
+                placeholder="Multi-line task — Enter to save, Shift+Enter for new line, Esc to cancel"
+                className="calendar-task-input calendar-multiline-textarea"
+                rows={3}
+                spellCheck={false}
+              />
+            ) : (
+              <input
+                {...getInputProps({
+                  placeholder: 'Add task...',
+                  className: 'calendar-task-input',
+                  onClick: (e: React.MouseEvent) => e.stopPropagation(),
+                  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (
+                      isOpen &&
+                      highlightedIndex != null &&
+                      e.key === 'Enter'
+                    ) {
+                      return // Let Downshift handle selection
+                    }
+                    handleKeyDown(e)
+                  },
+                  onKeyUp: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    e.stopPropagation()
+                  },
+                  onKeyPress: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    e.stopPropagation()
+                  },
+                  onPaste: (e: React.ClipboardEvent<HTMLInputElement>) => {
+                    const text = e.clipboardData?.getData('text') || ''
+                    if (text.includes('\n')) {
+                      e.preventDefault()
+                      const trimmed = text.trim()
+                      multiLineCursorPos.current = trimmed.length
+                      setMultiLineText(trimmed)
+                      setIsMultiLineInput(true)
+                    }
+                  },
+                  spellCheck: false,
+                })}
+                ref={inputRef}
+              />
+            )}
             {isOpen && menuPos && filteredTasks.length > 0
               ? createPortal(
                   <ul
@@ -672,6 +776,7 @@ export default function TodoCalendarView({
     date: string
     logId: number
     extraInfo: string
+    isOneOff?: boolean
   } | null>(null)
   const [editValue, setEditValue] = useState('')
   const calendarGridRef = useRef<HTMLDivElement>(null)
@@ -752,6 +857,7 @@ export default function TodoCalendarView({
             extraInfo: record.extraInfo,
             logId: record.id,
             sortOrder: record.sortOrder,
+            isOneOff: task.isOneOff,
           }
 
           if (record.done) {
@@ -848,9 +954,15 @@ export default function TodoCalendarView({
   )
 
   const handleEditTask = useCallback(
-    (taskId: number, date: string, logId: number, currentExtraInfo: string) => {
-      setEditingTask({ taskId, date, logId, extraInfo: currentExtraInfo })
-      setEditValue(currentExtraInfo || '')
+    (
+      taskId: number,
+      date: string,
+      logId: number,
+      currentValue: string,
+      isOneOff?: boolean,
+    ) => {
+      setEditingTask({ taskId, date, logId, extraInfo: currentValue, isOneOff })
+      setEditValue(currentValue || '')
     },
     [],
   )
@@ -859,19 +971,26 @@ export default function TodoCalendarView({
     if (!editingTask || !groupId) return
 
     try {
-      const task = displayTasks.find((t) => t.id === editingTask.taskId)
-      if (!task) return
+      if (editingTask.isOneOff) {
+        const newName = editValue.trim()
+        if (newName) {
+          await updateTask(editingTask.taskId, { task: newName })
+        }
+      } else {
+        const task = displayTasks.find((t) => t.id === editingTask.taskId)
+        if (!task) return
 
-      const record = task.records.find((r) => r.id === editingTask.logId)
-      if (!record) return
+        const record = task.records.find((r) => r.id === editingTask.logId)
+        if (!record) return
 
-      await setTaskLog(
-        editingTask.taskId,
-        editingTask.date,
-        record.done,
-        editValue.trim() || null,
-        editingTask.logId,
-      )
+        await setTaskLog(
+          editingTask.taskId,
+          editingTask.date,
+          record.done,
+          editValue.trim() || null,
+          editingTask.logId,
+        )
+      }
 
       const updated = await fetchGroupTasks(groupId)
       if (updated) onTaskDataChange([updated])
@@ -1158,7 +1277,10 @@ export default function TodoCalendarView({
                                   task.taskId,
                                   day.date,
                                   task.logId,
-                                  task.extraInfo || '',
+                                  task.isOneOff
+                                    ? task.task
+                                    : task.extraInfo || '',
+                                  task.isOneOff,
                                 )
                               }
                               onEditChange={setEditValue}
@@ -1248,7 +1370,10 @@ export default function TodoCalendarView({
                                   task.taskId,
                                   day.date,
                                   task.logId,
-                                  task.extraInfo || '',
+                                  task.isOneOff
+                                    ? task.task
+                                    : task.extraInfo || '',
+                                  task.isOneOff,
                                 )
                               }
                               onEditChange={setEditValue}

@@ -1721,6 +1721,7 @@ const api = new Elysia({ prefix: '/api' })
                 groupId,
                 task: taskName,
                 defaultExtraInfo,
+                isOneOff,
                 logId,
               } = body as {
                 date: string
@@ -1729,6 +1730,7 @@ const api = new Elysia({ prefix: '/api' })
                 groupId?: number
                 task?: string
                 defaultExtraInfo?: string | null
+                isOneOff?: boolean
                 logId?: number
               }
 
@@ -1780,18 +1782,21 @@ const api = new Elysia({ prefix: '/api' })
                   return status(404, { message: 'Group not found' })
                 }
 
-                // Find or create the task by name within the group for this user
-                const existingTask = await db
-                  .select()
-                  .from(tasksTable)
-                  .where(
-                    and(
-                      eq(tasksTable.groupId, groupId),
-                      eq(tasksTable.task, taskName.trim()),
-                      eq(tasksTable.userId, userId),
-                    ),
-                  )
-                  .limit(1)
+                // Find or create the task by name within the group for this user.
+                // One-off tasks always create a new task (skip dedup).
+                const existingTask = !isOneOff
+                  ? await db
+                      .select()
+                      .from(tasksTable)
+                      .where(
+                        and(
+                          eq(tasksTable.groupId, groupId),
+                          eq(tasksTable.task, taskName.trim()),
+                          eq(tasksTable.userId, userId),
+                        ),
+                      )
+                      .limit(1)
+                  : []
 
                 if (existingTask.length > 0) {
                   taskRow = existingTask[0]
@@ -1803,6 +1808,7 @@ const api = new Elysia({ prefix: '/api' })
                       groupId,
                       task: taskName.trim(),
                       defaultExtraInfo: normalizeOptionalText(defaultExtraInfo),
+                      isOneOff: isOneOff === true,
                     })
                     .returning()
                   taskRow = newTask

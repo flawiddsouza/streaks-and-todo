@@ -90,6 +90,7 @@ export const tasksTable = pgTable('tasks', {
   task: text().notNull(),
   defaultExtraInfo: text('default_extra_info'),
   streakId: integer('streak_id').references(() => streaksTable.id),
+  isOneOff: boolean('is_one_off').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

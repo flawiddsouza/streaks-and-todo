@@ -48,6 +48,7 @@ export interface ApiTask {
   task: string
   defaultExtraInfo: string | null
   streakId?: number | null
+  isOneOff?: boolean
   logs: ApiTaskLog[]
   groupName: string
 }
@@ -119,6 +120,7 @@ export interface TaskItem {
   task: string
   defaultExtraInfo?: string | null
   streakId?: number | null
+  isOneOff?: boolean
   records: TaskRecord[]
 }
 
@@ -227,6 +229,7 @@ export const fetchGroupTasks = async (
         task: task.task,
         defaultExtraInfo: task.defaultExtraInfo,
         streakId: task.streakId ?? null,
+        isOneOff: task.isOneOff ?? false,
         records: task.logs.map((log) => ({
           id: log.id,
           date: log.date,
@@ -463,7 +466,11 @@ export const createTaskAndLog = async (
   task: string,
   date: string,
   done: boolean,
-  options?: { defaultExtraInfo?: string | null; extraInfo?: string | null },
+  options?: {
+    defaultExtraInfo?: string | null
+    extraInfo?: string | null
+    isOneOff?: boolean
+  },
 ): Promise<{ task: ApiTask; log: ApiTaskLog }> => {
   const response = await apiFetch(`/tasks/new/log`, {
     method: 'POST',
@@ -479,6 +486,7 @@ export const createTaskAndLog = async (
       ...(options?.extraInfo !== undefined
         ? { extraInfo: options.extraInfo }
         : {}),
+      ...(options?.isOneOff ? { isOneOff: true } : {}),
     }),
   })
   if (!response.ok) {

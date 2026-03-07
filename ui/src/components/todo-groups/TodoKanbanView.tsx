@@ -16,11 +16,17 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { fetchGroupTasks, setTaskLog, type TaskGroup } from '../../api'
+import {
+  fetchGroupTasks,
+  setTaskLog,
+  type TaskGroup,
+  updateTask,
+} from '../../api'
 import { FLOATING_TASK_DATE } from '../../config'
 import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   copyTaskToClipboard,
+  createOneOffTaskAndAdd,
   deleteTaskLog,
   expandTasksForDropdown,
   type FlatTask,
@@ -52,6 +58,7 @@ interface KanbanCard {
   date: string
   done: boolean
   sortOrder: number
+  isOneOff?: boolean
 }
 
 interface DateGroup {
@@ -243,23 +250,43 @@ function KanbanCardComponent({
   if (isEditing) {
     return (
       <div className="kanban-card kanban-card-editing">
-        <input
-          type="text"
-          className="kanban-card-edit-input"
-          value={editValue}
-          onChange={(e) => onEditChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              onEditSave()
-            } else if (e.key === 'Escape') {
-              onEditCancel()
-            }
-          }}
-          onBlur={onEditSave}
-          placeholder="Extra info (optional)"
-          spellCheck={false}
-          ref={(input) => input?.focus()}
-        />
+        {card.isOneOff ? (
+          <textarea
+            className="kanban-card-edit-input kanban-multiline-textarea"
+            value={editValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                onEditSave()
+              } else if (e.key === 'Escape') {
+                onEditCancel()
+              }
+            }}
+            onBlur={onEditSave}
+            placeholder="Edit task"
+            spellCheck={false}
+            ref={(el) => el?.focus()}
+          />
+        ) : (
+          <input
+            type="text"
+            className="kanban-card-edit-input"
+            value={editValue}
+            onChange={(e) => onEditChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onEditSave()
+              } else if (e.key === 'Escape') {
+                onEditCancel()
+              }
+            }}
+            onBlur={onEditSave}
+            placeholder="Extra info (optional)"
+            spellCheck={false}
+            ref={(input) => input?.focus()}
+          />
+        )}
       </div>
     )
   }
@@ -292,7 +319,7 @@ function KanbanCardComponent({
             e.stopPropagation()
             onEdit()
           }}
-          title="Edit extra info"
+          title={card.isOneOff ? 'Edit task' : 'Edit extra info'}
         >
           ✏️
         </button>
@@ -333,6 +360,10 @@ function KanbanInput({
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
 }) {
   const [inputValue, setInputValue] = useState('')
+  const [isMultiLineInput, setIsMultiLineInput] = useState(false)
+  const [multiLineText, setMultiLineText] = useState('')
+  const multiLineCursorPos = useRef<number>(0)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const menuRef = useRef<HTMLUListElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -341,6 +372,15 @@ function KanbanInput({
     left: number
     width: number
   } | null>(null)
+
+  useEffect(() => {
+    if (isMultiLineInput && textareaRef.current) {
+      const el = textareaRef.current
+      el.focus()
+      const p = multiLineCursorPos.current
+      el.setSelectionRange(p, p)
+    }
+  }, [isMultiLineInput])
 
   useEffect(() => {
     const updatePos = () => {
@@ -380,6 +420,18 @@ function KanbanInput({
     if (e.key === 'Home' || e.key === 'End') {
       // biome-ignore lint/suspicious/noExplicitAny: type is not correct, preventDownshiftDefault is present
       ;(e.nativeEvent as any).preventDownshiftDefault = true
+    }
+
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault()
+      const pos =
+        (e.target as HTMLInputElement).selectionStart ?? inputValue.length
+      const newText = `${inputValue.slice(0, pos)}\n${inputValue.slice(pos)}`
+      multiLineCursorPos.current = pos + 1
+      setIsMultiLineInput(true)
+      setMultiLineText(newText)
+      setInputValue('')
+      return
     }
 
     if (e.key === 'Enter') {
@@ -472,24 +524,72 @@ function KanbanInput({
 
         return (
           <div className="kanban-input-wrap">
-            <input
-              {...getInputProps({
-                placeholder: disabled
-                  ? 'Select a date first...'
-                  : 'Add task...',
-                className: 'kanban-input',
-                enterKeyHint: 'enter',
-                disabled: disabled,
-                onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-                  if (isOpen && highlightedIndex != null && e.key === 'Enter') {
-                    return // Let Downshift handle selection
+            {isMultiLineInput ? (
+              <textarea
+                ref={textareaRef}
+                value={multiLineText}
+                onChange={(e) => setMultiLineText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (multiLineText.trim() && groupId) {
+                      createOneOffTaskAndAdd(
+                        groupId,
+                        multiLineText.trim(),
+                        date,
+                        isDoneColumn,
+                        onTaskDataChange,
+                      ).catch((err) =>
+                        console.error('Error creating one-off task:', err),
+                      )
+                    }
+                    setIsMultiLineInput(false)
+                    setMultiLineText('')
                   }
-                  handleKeyDown(e)
-                },
-                spellCheck: false,
-              })}
-              ref={inputRef}
-            />
+                  if (e.key === 'Escape') {
+                    setIsMultiLineInput(false)
+                    setMultiLineText('')
+                  }
+                }}
+                placeholder="Multi-line task — Enter to save, Shift+Enter for new line, Esc to cancel"
+                className="kanban-input kanban-multiline-textarea"
+                rows={3}
+                spellCheck={false}
+              />
+            ) : (
+              <input
+                {...getInputProps({
+                  placeholder: disabled
+                    ? 'Select a date first...'
+                    : 'Add task...',
+                  className: 'kanban-input',
+                  enterKeyHint: 'enter',
+                  disabled: disabled,
+                  onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (
+                      isOpen &&
+                      highlightedIndex != null &&
+                      e.key === 'Enter'
+                    ) {
+                      return // Let Downshift handle selection
+                    }
+                    handleKeyDown(e)
+                  },
+                  onPaste: (e: React.ClipboardEvent<HTMLInputElement>) => {
+                    const text = e.clipboardData?.getData('text') || ''
+                    if (text.includes('\n')) {
+                      e.preventDefault()
+                      const trimmed = text.trim()
+                      multiLineCursorPos.current = trimmed.length
+                      setMultiLineText(trimmed)
+                      setIsMultiLineInput(true)
+                    }
+                  },
+                  spellCheck: false,
+                })}
+                ref={inputRef}
+              />
+            )}
             {!disabled && isOpen && menuPos && filteredTasks.length > 0
               ? createPortal(
                   <ul
@@ -585,7 +685,12 @@ function KanbanColumn({
   ) => Promise<void>
   availableTasks: FlatTask[]
   filterQuery?: string
-  editingTask: { logId: number; extraInfo: string } | null
+  editingTask: {
+    logId: number
+    taskId: number
+    extraInfo: string
+    isOneOff?: boolean
+  } | null
   onEditTask: (card: KanbanCard) => void
   onEditChange: (value: string) => void
   onEditSave: () => void
@@ -805,7 +910,9 @@ export default function TodoKanbanView({
 }: TodoKanbanViewProps) {
   const [editingTask, setEditingTask] = useState<{
     logId: number
+    taskId: number
     extraInfo: string
+    isOneOff?: boolean
   } | null>(null)
 
   const kanbanData = useMemo(() => {
@@ -823,6 +930,7 @@ export default function TodoKanbanView({
             date: record.date,
             done: record.done,
             sortOrder: record.sortOrder,
+            isOneOff: task.isOneOff,
           })
         })
       })
@@ -1044,7 +1152,12 @@ export default function TodoKanbanView({
   )
 
   const handleEditTask = useCallback((card: KanbanCard) => {
-    setEditingTask({ logId: card.id, extraInfo: card.extraInfo || '' })
+    setEditingTask({
+      logId: card.id,
+      taskId: card.taskId,
+      extraInfo: card.isOneOff ? card.taskName : card.extraInfo || '',
+      isOneOff: card.isOneOff,
+    })
   }, [])
 
   const handleEditChange = useCallback((value: string) => {
@@ -1054,22 +1167,30 @@ export default function TodoKanbanView({
   const handleEditSave = useCallback(async () => {
     if (!editingTask) return
 
-    // Find the card being edited
-    const card = kanbanData.todoGroups
-      .flatMap((g) => g.cards)
-      .concat(kanbanData.doneGroups.flatMap((g) => g.cards))
-      .find((c) => c.id === editingTask.logId)
+    try {
+      if (editingTask.isOneOff) {
+        const newName = editingTask.extraInfo.trim()
+        if (newName) {
+          await updateTask(editingTask.taskId, { task: newName })
+          if (groupId) {
+            const refreshed = await fetchGroupTasks(groupId)
+            if (refreshed) onTaskDataChange([refreshed])
+          }
+        }
+      } else {
+        const card = kanbanData.todoGroups
+          .flatMap((g) => g.cards)
+          .concat(kanbanData.doneGroups.flatMap((g) => g.cards))
+          .find((c) => c.id === editingTask.logId)
 
-    if (card) {
-      try {
-        await updateCardExtraInfo(card, editingTask.extraInfo)
-      } finally {
-        setEditingTask(null)
+        if (card) {
+          await updateCardExtraInfo(card, editingTask.extraInfo)
+        }
       }
-    } else {
+    } finally {
       setEditingTask(null)
     }
-  }, [editingTask, kanbanData, updateCardExtraInfo])
+  }, [editingTask, kanbanData, updateCardExtraInfo, groupId, onTaskDataChange])
 
   const handleEditCancel = useCallback(() => {
     setEditingTask(null)

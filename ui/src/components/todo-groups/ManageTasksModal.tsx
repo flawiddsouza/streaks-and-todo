@@ -101,7 +101,7 @@ export default function ManageTasksModal({
   }, [])
 
   const tasks = useMemo(() => {
-    const list = group?.tasks ?? []
+    const list = (group?.tasks ?? []).filter((t) => !t.isOneOff)
     const normalizedFilter = filter.trim().toLowerCase()
     const filtered = normalizedFilter
       ? list.filter((t) => {
