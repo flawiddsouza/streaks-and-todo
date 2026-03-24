@@ -538,6 +538,7 @@ function TaskColumn({
     }
   }, [isMultiLineInput])
   const listRef = useRef<HTMLDivElement>(null)
+  const [isListDragOver, setIsListDragOver] = useState(false)
   const menuRef = useRef<HTMLUListElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   // input ref so we can anchor the portal menu to its position
@@ -583,65 +584,98 @@ function TaskColumn({
     }
   }, [menuOpen])
 
+  // Register the whole list container as a drop target so dropping anywhere in the
+  // blank cell area appends to end. Only processes the drop when no inner drop zone
+  // also caught it (location.current.dropTargets.length === 1).
+  useEffect(() => {
+    const element = listRef.current
+    if (!element) return
+
+    const lastLogId = tasks.length > 0 ? tasks[tasks.length - 1].logId : -1
+
+    return dropTargetForElements({
+      element,
+      canDrop: ({ source }) =>
+        source.data.type === 'task-item' || source.data.type === 'pin-item',
+      onDragEnter: () => setIsListDragOver(true),
+      onDragLeave: () => setIsListDragOver(false),
+      onDrop: ({ source, location }) => {
+        setIsListDragOver(false)
+        // If an inner drop zone also caught this drop, let it handle it
+        if (location.current.dropTargets.length > 1) return
+        if (
+          source.data.type === 'task-item' &&
+          (source.data.logId as number) !== lastLogId
+        ) {
+          onReorder(
+            date,
+            source.data.sourceDate as string,
+            source.data.logId as number,
+            lastLogId,
+            'after',
+            isDone,
+          )
+        }
+        if (source.data.type === 'pin-item' && onAddFromPin) {
+          onAddFromPin(date, lastLogId, 'after', isDone, {
+            taskId: source.data.taskId as number,
+            extraInfo: source.data.extraInfo as string | undefined,
+          })
+        }
+      },
+    })
+  }, [tasks, date, isDone, onReorder, onAddFromPin])
+
   return (
-    <div ref={listRef} className="todo-list">
-      {tasks.length === 0 ? (
-        // Empty list - single drop zone
-        <DropZone
-          date={date}
-          targetLogId={-1}
-          position="after"
-          isDoneColumn={isDone}
-          onReorder={onReorder}
-          onAddFromPin={onAddFromPin}
-        />
-      ) : (
-        tasks.map((taskLog, index) => {
-          const isEditing = editingTask?.logId === taskLog.logId
-          return (
-            <div key={`${taskLog.logId}-${date}`}>
-              {/* Drop zone before the first item */}
-              {index === 0 && (
-                <DropZone
-                  date={date}
-                  targetLogId={taskLog.logId}
-                  position="before"
-                  isDoneColumn={isDone}
-                  onReorder={onReorder}
-                  onAddFromPin={onAddFromPin}
-                />
-              )}
-
-              <TaskItemComponent
-                taskLog={taskLog}
-                date={date}
-                onToggle={onToggle}
-                onDelete={onDelete}
-                onCopy={onCopy}
-                onEdit={onEdit}
-                isEditing={isEditing}
-                editValue={editingTask?.extraInfo || ''}
-                onEditChange={onEditChange}
-                onEditSave={onEditSave}
-                onEditCancel={onEditCancel}
-                onReorder={onReorder}
-                filterQuery={filterQuery}
-                isOneOff={taskLog.isOneOff}
-              />
-
-              {/* Drop zone after each item */}
+    <div
+      ref={listRef}
+      className={`todo-list${isListDragOver ? ' todo-list-drag-over' : ''}`}
+    >
+      {tasks.map((taskLog, index) => {
+        const isEditing = editingTask?.logId === taskLog.logId
+        return (
+          <div key={`${taskLog.logId}-${date}`}>
+            {/* Drop zone before the first item */}
+            {index === 0 && (
               <DropZone
                 date={date}
                 targetLogId={taskLog.logId}
-                position="after"
+                position="before"
                 isDoneColumn={isDone}
                 onReorder={onReorder}
                 onAddFromPin={onAddFromPin}
               />
-            </div>
-          )
-        })
-      )}
+            )}
+
+            <TaskItemComponent
+              taskLog={taskLog}
+              date={date}
+              onToggle={onToggle}
+              onDelete={onDelete}
+              onCopy={onCopy}
+              onEdit={onEdit}
+              isEditing={isEditing}
+              editValue={editingTask?.extraInfo || ''}
+              onEditChange={onEditChange}
+              onEditSave={onEditSave}
+              onEditCancel={onEditCancel}
+              onReorder={onReorder}
+              filterQuery={filterQuery}
+              isOneOff={taskLog.isOneOff}
+            />
+
+            {/* Drop zone after each item */}
+            <DropZone
+              date={date}
+              targetLogId={taskLog.logId}
+              position="after"
+              isDoneColumn={isDone}
+              onReorder={onReorder}
+              onAddFromPin={onAddFromPin}
+            />
+          </div>
+        )
+      })}
 
       <Downshift<FlatTask>
         inputValue={inputValue}

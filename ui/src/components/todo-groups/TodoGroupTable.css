@@ -1,11 +1,18 @@
 .header-cell-todo,
+.header-cell-done {
+  width: 25rem;
+  min-width: 25rem;
+  max-width: 25rem;
+  text-align: left;
+}
+
 .todo-cell,
-.header-cell-done,
 .done-cell {
   width: 25rem;
   min-width: 25rem;
   max-width: 25rem;
   text-align: left;
+  height: 1px; /* enables height: 100% on .todo-list children */
 }
 
 .header-cell-count,
@@ -18,6 +25,7 @@
   flex-direction: column;
   position: relative;
   min-height: 30px; /* Ensure there's always some space for dropping */
+  height: 100%;
 }
 
 .drop-zone {
@@ -267,6 +275,12 @@
   align-items: center;
   gap: 6px;
   position: relative;
+}
+
+.todo-list.todo-list-drag-over {
+  background-color: #e8f5e9;
+  border-radius: 4px;
+  outline: 1px dashed rgba(76, 175, 80, 0.5);
 }
 
 .todo-input-inner {
