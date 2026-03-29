@@ -51,6 +51,7 @@ interface TodoGroupTableProps {
   filterQuery?: string
   onFilteredCountChange?: (count: number) => void
   settings: GroupSettings
+  onNewTaskCreated?: (task: { id: number; task: string }) => void
 }
 
 interface TaskLog {
@@ -882,6 +883,7 @@ export default function TodoGroupTable({
   filterQuery = '',
   onFilteredCountChange,
   settings,
+  onNewTaskCreated,
 }: TodoGroupTableProps) {
   // Input state is now managed locally inside TaskColumn to avoid caret jumps
   const [editingTask, setEditingTask] = useState<{
@@ -1172,7 +1174,7 @@ export default function TodoGroupTable({
       if (!groupId) return
 
       try {
-        await handleTaskSelection(
+        const created = await handleTaskSelection(
           selectedTask,
           inputValue,
           date,
@@ -1182,13 +1184,14 @@ export default function TodoGroupTable({
           onTaskDataChange,
           addTaskToCell, // Pass TodoGroupTable's optimized function
         )
+        if (created) onNewTaskCreated?.(created)
         setInputValue('')
       } catch (err) {
         console.error('Error handling task selection:', err)
         alert((err as Error).message)
       }
     },
-    [groupId, dropdownTasks, onTaskDataChange, addTaskToCell],
+    [groupId, dropdownTasks, onTaskDataChange, addTaskToCell, onNewTaskCreated],
   )
 
   const handleKeyDown = useCallback(
@@ -1225,7 +1228,7 @@ export default function TodoGroupTable({
         }
 
         // Use shared utility for unified task creation/addition logic
-        await addOrCreateTask(
+        const created = await addOrCreateTask(
           trimmedValue,
           date,
           done,
@@ -1234,10 +1237,11 @@ export default function TodoGroupTable({
           onTaskDataChange,
           addTaskToCell,
         )
+        if (created) onNewTaskCreated?.(created)
         setInputValue('')
       }
     },
-    [groupId, onTaskDataChange, addTaskToCell],
+    [groupId, onTaskDataChange, addTaskToCell, onNewTaskCreated],
   )
 
   const currentDate = dayjs().format('YYYY-MM-DD')

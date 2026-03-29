@@ -3,11 +3,17 @@ import '../shared/ManageGroupModal.css'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type ApiStreak,
+  type ApiTaskFamily,
+  addTaskToFamily,
   fetchAllStreaks,
+  fetchTaskFamilies,
   fillMissingStreaksForTask,
+  removeTaskFromFamily,
   type TaskGroup,
 } from '../../api'
 import { type AppEvent, onEvent } from '../../events'
+import FamilyPickerModal from './FamilyPickerModal'
+import TaskFamilyEditor from './TaskFamilyEditor'
 
 interface ManageTasksModalProps {
   isOpen: boolean
@@ -44,6 +50,14 @@ export default function ManageTasksModal({
     items: { date: string; task: string }[]
   } | null>(null)
   const [allStreaks, setAllStreaks] = useState<ApiStreak[]>([])
+  const [allFamilies, setAllFamilies] = useState<ApiTaskFamily[]>([])
+  const [editingFamily, setEditingFamily] = useState<ApiTaskFamily | null>(null)
+  const [linkingFamilyForTaskId, setLinkingFamilyForTaskId] = useState<
+    number | null
+  >(null)
+  const [confirmingRemoveTaskId, setConfirmingRemoveTaskId] = useState<
+    number | null
+  >(null)
   const [filter, setFilter] = useState<string>('')
   const [expandedFields, setExpandedFields] = useState<Record<number, boolean>>(
     {},
@@ -104,17 +118,26 @@ export default function ManageTasksModal({
   }, [group])
 
   useEffect(() => {
-    const loadStreaks = () => {
-      fetchAllStreaks()
-        .then(setAllStreaks)
-        .catch(() => setAllStreaks([]))
+    const load = () => {
+      Promise.all([fetchAllStreaks(), fetchTaskFamilies()])
+        .then(([streaks, families]) => {
+          setAllStreaks(streaks)
+          setAllFamilies(families)
+        })
+        .catch(() => {
+          setAllStreaks([])
+          setAllFamilies([])
+        })
     }
 
-    loadStreaks()
+    load()
 
     const unsub = onEvent((evt: AppEvent) => {
-      if (evt.type === 'streaks.changed') {
-        loadStreaks()
+      if (
+        evt.type === 'streaks.changed' ||
+        evt.type === 'task.families.changed'
+      ) {
+        load()
       }
     })
 
@@ -229,6 +252,7 @@ export default function ManageTasksModal({
                         fontFamily: 'inherit',
                         fontSize: 'inherit',
                       }}
+                      disabled={t.familyId != null}
                     />
                   ) : (
                     <input
@@ -258,27 +282,98 @@ export default function ManageTasksModal({
                       }}
                       placeholder="Default extra info (Enter for multi)"
                       className="streak-name-input"
+                      disabled={t.familyId != null}
                     />
                   )}
                 </div>
                 <div style={{ flex: 2 }}>
-                  <select
-                    value={drafts[t.id]?.streakId ?? ''}
-                    onChange={(e) => {
-                      const val =
-                        e.target.value === '' ? null : Number(e.target.value)
-                      handleStreakChange(t.id, val)
-                    }}
-                    className="streak-name-input"
-                    style={{ width: '100%' }}
-                  >
-                    <option value="">No streak linked</option>
-                    {allStreaks.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  {t.familyId != null ? (
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      {confirmingRemoveTaskId === t.id ? (
+                        <>
+                          <span style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                            Remove?
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={async () => {
+                              if (!t.familyId) return
+                              try {
+                                await removeTaskFromFamily(t.familyId, t.id)
+                              } catch (err) {
+                                alert((err as Error).message)
+                              } finally {
+                                setConfirmingRemoveTaskId(null)
+                              }
+                            }}
+                          >
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setConfirmingRemoveTaskId(null)}
+                          >
+                            No
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() =>
+                              setEditingFamily(
+                                allFamilies.find((f) => f.id === t.familyId) ??
+                                  null,
+                              )
+                            }
+                            style={{ flex: 1, textAlign: 'left' }}
+                          >
+                            ↗{' '}
+                            {allFamilies.find((f) => f.id === t.familyId)
+                              ?.name ?? 'Unknown family'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            title="Remove from family"
+                            onClick={() => setConfirmingRemoveTaskId(t.id)}
+                          >
+                            ×
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <select
+                      value={drafts[t.id]?.streakId ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        if (val === '__link_family__') {
+                          setLinkingFamilyForTaskId(t.id)
+                          return
+                        }
+                        handleStreakChange(
+                          t.id,
+                          val === '' ? null : Number(val),
+                        )
+                      }}
+                      className="streak-name-input"
+                      style={{ width: '100%' }}
+                    >
+                      <option value="">No streak linked</option>
+                      {allStreaks.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                      <option value="__link_family__">Link to family...</option>
+                    </select>
+                  )}
                 </div>
                 <div className="streak-actions">
                   {t.streakId != null && (
@@ -302,18 +397,20 @@ export default function ManageTasksModal({
                       {filling[t.id] ? 'Filling...' : 'Fill'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => handleSave(t.id)}
-                    disabled={
-                      saving[t.id] ||
-                      !drafts[t.id] ||
-                      drafts[t.id].task.trim() === ''
-                    }
-                  >
-                    {saving[t.id] ? 'Saving...' : 'Save'}
-                  </button>
+                  {t.familyId == null && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleSave(t.id)}
+                      disabled={
+                        saving[t.id] ||
+                        !drafts[t.id] ||
+                        drafts[t.id].task.trim() === ''
+                      }
+                    >
+                      {saving[t.id] ? 'Saving...' : 'Save'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -354,6 +451,53 @@ export default function ManageTasksModal({
           </div>
         </Modal>
       )}
+      {editingFamily && (
+        <TaskFamilyEditor
+          family={editingFamily}
+          allStreaks={allStreaks}
+          memberNames={(group?.tasks ?? [])
+            .filter((t) => t.familyId === editingFamily.id)
+            .map((t) => t.task)}
+          onClose={() => setEditingFamily(null)}
+          onSaved={(updated) => {
+            setAllFamilies((prev) =>
+              prev.map((f) => (f.id === updated.id ? updated : f)),
+            )
+            setEditingFamily(null)
+          }}
+          onDeleted={() => {
+            setAllFamilies((prev) =>
+              prev.filter((f) => f.id !== editingFamily.id),
+            )
+            setEditingFamily(null)
+          }}
+        />
+      )}
+      {linkingFamilyForTaskId != null &&
+        (() => {
+          const t = (group?.tasks ?? []).find(
+            (x) => x.id === linkingFamilyForTaskId,
+          )
+          if (!t) return null
+          return (
+            <FamilyPickerModal
+              taskId={t.id}
+              taskName={t.task}
+              currentExtraInfo={drafts[t.id]?.defaultExtraInfo?.trim() || null}
+              currentStreakId={drafts[t.id]?.streakId ?? null}
+              allFamilies={allFamilies}
+              onPicked={async (familyId) => {
+                await addTaskToFamily(familyId, t.id)
+                setLinkingFamilyForTaskId(null)
+              }}
+              onCreated={(family) => {
+                setAllFamilies((prev) => [...prev, family])
+                setLinkingFamilyForTaskId(null)
+              }}
+              onClose={() => setLinkingFamilyForTaskId(null)}
+            />
+          )
+        })()}
     </>
   )
 }

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import {
+  type ApiTaskFamily,
   fetchGroupTasks,
+  matchTaskFamily,
   type TaskGroup,
   updateGroup,
   updateTask,
@@ -12,6 +14,7 @@ import GroupSettingsModal, {
 } from '../components/shared/GroupSettingsModal'
 import PinnedTasks from '../components/shared/PinnedTasks'
 import ManageTasksModal from '../components/todo-groups/ManageTasksModal'
+import TaskFamilySuggestionBanner from '../components/todo-groups/TaskFamilySuggestionBanner'
 import TodoCalendarView from '../components/todo-groups/TodoCalendarView'
 import TodoGroupTable from '../components/todo-groups/TodoGroupTable'
 import TodoKanbanView from '../components/todo-groups/TodoKanbanView'
@@ -31,6 +34,11 @@ export default function TodoGroup() {
     'table' | 'kanban' | 'calendar' | undefined
   >(undefined)
   const [settings, setSettings] = useState<GroupSettings>({})
+  const [familySuggestion, setFamilySuggestion] = useState<{
+    taskId: number
+    taskName: string
+    matches: ApiTaskFamily[]
+  } | null>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
 
   // Filter out floating tasks for the views
@@ -100,6 +108,17 @@ export default function TodoGroup() {
     await handleSettingsChange(newSettings)
   }
 
+  const handleNewTaskCreated = async (task: { id: number; task: string }) => {
+    try {
+      const matches = await matchTaskFamily(task.task)
+      if (matches.length > 0) {
+        setFamilySuggestion({ taskId: task.id, taskName: task.task, matches })
+      }
+    } catch (err) {
+      console.error('Failed to match task family:', err)
+    }
+  }
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -156,7 +175,8 @@ export default function TodoGroup() {
           evt.type === 'pins.groups.reordered' ||
           evt.type === 'pins.items.changed' ||
           evt.type === 'pins.items.reordered' ||
-          (evt.type === 'task.updated' && taskData[0]?.id === gid)
+          (evt.type === 'task.updated' && taskData[0]?.id === gid) ||
+          evt.type === 'task.families.changed'
         ) {
           try {
             const updated = await fetchGroupTasks(gid)
@@ -344,6 +364,7 @@ export default function TodoGroup() {
               filterQuery={filterQuery}
               onFilteredCountChange={setFilteredCount}
               settings={settings}
+              onNewTaskCreated={handleNewTaskCreated}
             />
           ) : viewMode === 'kanban' ? (
             <TodoKanbanView
@@ -354,6 +375,7 @@ export default function TodoGroup() {
               groupId={groupId ? parseInt(groupId, 10) : undefined}
               filterQuery={filterQuery}
               settings={settings}
+              onNewTaskCreated={handleNewTaskCreated}
             />
           ) : viewMode === 'calendar' ? (
             <TodoCalendarView
@@ -363,6 +385,7 @@ export default function TodoGroup() {
               onTaskDataChange={setRawTaskData}
               groupId={groupId ? parseInt(groupId, 10) : undefined}
               filterQuery={filterQuery}
+              onNewTaskCreated={handleNewTaskCreated}
             />
           ) : null}
         </div>
@@ -400,6 +423,15 @@ export default function TodoGroup() {
           }
         }}
       />
+
+      {familySuggestion && (
+        <TaskFamilySuggestionBanner
+          taskId={familySuggestion.taskId}
+          taskName={familySuggestion.taskName}
+          matches={familySuggestion.matches}
+          onDismiss={() => setFamilySuggestion(null)}
+        />
+      )}
     </div>
   )
 }

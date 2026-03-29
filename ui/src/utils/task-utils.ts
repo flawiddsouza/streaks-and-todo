@@ -194,7 +194,7 @@ export async function createTaskAndAddToGroup(
   date: string,
   done: boolean,
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>,
-): Promise<void> {
+): Promise<{ id: number; task: string } | undefined> {
   if (!groupId || !taskText.trim()) return
 
   try {
@@ -263,6 +263,8 @@ export async function createTaskAndAddToGroup(
       copy[0] = group
       return copy
     })
+
+    return { id: task.id, task: task.task }
   } catch (err) {
     throw new Error(`Failed to create task: ${(err as Error).message}`)
   }
@@ -348,7 +350,7 @@ export async function addOrCreateTask(
     done: boolean,
     extraInfo?: string,
   ) => Promise<void>,
-): Promise<void> {
+): Promise<{ id: number; task: string } | undefined> {
   if (!groupId || !taskText.trim()) return
 
   const { task: taskName, extraInfo: inputExtraInfo } = parseTaskWithExtraInfo(
@@ -428,7 +430,7 @@ export async function addOrCreateTask(
     }
   } else {
     // Task doesn't exist - create it
-    await createTaskAndAddToGroup(
+    return await createTaskAndAddToGroup(
       groupId,
       taskText,
       date,
@@ -467,12 +469,12 @@ export async function handleTaskSelection(
     done: boolean,
     extraInfo?: string,
   ) => Promise<void>,
-): Promise<void> {
+): Promise<{ id: number; task: string } | undefined> {
   if (!groupId) return
 
   // If no task was selected from dropdown, check if input matches an existing task
   if (!selectedTask && inputValue) {
-    await addOrCreateTask(
+    return await addOrCreateTask(
       inputValue,
       date,
       done,
@@ -481,7 +483,6 @@ export async function handleTaskSelection(
       onTaskDataChange,
       addExistingTask,
     )
-    return
   }
 
   // Task was selected from dropdown - add it

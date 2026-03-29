@@ -79,6 +79,19 @@ export const streakGroupsTable = pgTable('streak_groups', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
 
+export const taskFamiliesTable = pgTable('task_families', {
+  id: integer().primaryKey().generatedAlwaysAsIdentity(),
+  userId: text('user_id')
+    .references(() => usersTable.id)
+    .notNull(),
+  name: varchar({ length: 255 }).notNull(),
+  namePattern: text('name_pattern'),
+  defaultExtraInfo: text('default_extra_info'),
+  streakId: integer('streak_id').references(() => streaksTable.id),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
 export const tasksTable = pgTable('tasks', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
   userId: text('user_id')
@@ -91,6 +104,9 @@ export const tasksTable = pgTable('tasks', {
   defaultExtraInfo: text('default_extra_info'),
   streakId: integer('streak_id').references(() => streaksTable.id),
   isOneOff: boolean('is_one_off').notNull().default(false),
+  familyId: integer('family_id').references(
+    (): AnyPgColumn => taskFamiliesTable.id,
+  ),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

@@ -49,8 +49,19 @@ export interface ApiTask {
   defaultExtraInfo: string | null
   streakId?: number | null
   isOneOff?: boolean
+  familyId?: number | null
   logs: ApiTaskLog[]
   groupName: string
+}
+
+export interface ApiTaskFamily {
+  id: number
+  name: string
+  namePattern: string | null
+  defaultExtraInfo: string | null
+  streakId: number | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface ApiGroup {
@@ -121,6 +132,7 @@ export interface TaskItem {
   defaultExtraInfo?: string | null
   streakId?: number | null
   isOneOff?: boolean
+  familyId?: number | null
   records: TaskRecord[]
 }
 
@@ -230,6 +242,7 @@ export const fetchGroupTasks = async (
         defaultExtraInfo: task.defaultExtraInfo,
         streakId: task.streakId ?? null,
         isOneOff: task.isOneOff ?? false,
+        familyId: task.familyId ?? null,
         records: task.logs.map((log) => ({
           id: log.id,
           date: log.date,
@@ -981,4 +994,99 @@ export const updateStreakNotifications = async (
   }
   const data = await response.json()
   return data.streak
+}
+
+export const fetchTaskFamilies = async (): Promise<ApiTaskFamily[]> => {
+  const response = await apiFetch('/task-families')
+  if (!response.ok) throw new Error('Failed to fetch task families')
+  const data = await response.json()
+  return data.families
+}
+
+export const createTaskFamily = async (payload: {
+  name: string
+  namePattern?: string | null
+  defaultExtraInfo?: string | null
+  streakId?: number | null
+  taskId: number
+}): Promise<ApiTaskFamily> => {
+  const response = await apiFetch('/task-families', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.message || 'Failed to create task family')
+  }
+  const data = await response.json()
+  return data.family
+}
+
+export const updateTaskFamily = async (
+  familyId: number,
+  payload: {
+    name?: string
+    namePattern?: string | null
+    defaultExtraInfo?: string | null
+    streakId?: number | null
+  },
+): Promise<ApiTaskFamily> => {
+  const response = await apiFetch(`/task-families/${familyId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.message || 'Failed to update task family')
+  }
+  const data = await response.json()
+  return data.family
+}
+
+export const deleteTaskFamily = async (familyId: number): Promise<void> => {
+  const response = await apiFetch(`/task-families/${familyId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) throw new Error('Failed to delete task family')
+}
+
+export const addTaskToFamily = async (
+  familyId: number,
+  taskId: number,
+): Promise<void> => {
+  const response = await apiFetch(`/task-families/${familyId}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId }),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.message || 'Failed to add task to family')
+  }
+}
+
+export const removeTaskFromFamily = async (
+  familyId: number,
+  taskId: number,
+): Promise<void> => {
+  const response = await apiFetch(
+    `/task-families/${familyId}/members/${taskId}`,
+    {
+      method: 'DELETE',
+    },
+  )
+  if (!response.ok) throw new Error('Failed to remove task from family')
+}
+
+export const matchTaskFamily = async (
+  taskName: string,
+): Promise<ApiTaskFamily[]> => {
+  const response = await apiFetch(
+    `/task-families/match?name=${encodeURIComponent(taskName)}`,
+  )
+  if (!response.ok) return []
+  const data = await response.json()
+  return data.families ?? []
 }

@@ -14,6 +14,7 @@ import {
   streakGroupsTable,
   streakLogTable,
   streaksTable,
+  taskFamiliesTable,
   taskLogTable,
   tasksTable,
   userNotificationSettingsTable,
@@ -50,6 +51,13 @@ const normalizeOptionalText = (v: unknown) => {
   if (v == null) return null
   const s = `${v}`.trim()
   return s === '' ? null : s
+}
+
+function matchesPattern(pattern: string, name: string): boolean {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.+')
+  return new RegExp(`^${escaped}$`, 'i').test(name)
 }
 
 // When a task is marked done and it's linked to a streak, ensure the streak has a done log for the same date.
@@ -2915,6 +2923,17 @@ const api = new Elysia({ prefix: '/api' })
                 return status(404, { message: 'Task not found' })
               }
 
+              // Block editing family-managed fields directly on member tasks
+              if (
+                (defaultExtraInfo !== undefined || streakId !== undefined) &&
+                existing[0].familyId != null
+              ) {
+                return status(400, {
+                  message:
+                    'This task belongs to a family. Edit defaultExtraInfo and streakId via the family.',
+                })
+              }
+
               const updates: Partial<typeof tasksTable.$inferInsert> = {}
 
               if (task !== undefined) {
@@ -3083,6 +3102,386 @@ const api = new Elysia({ prefix: '/api' })
               }
             } catch (err) {
               console.error('Error filling missing streak logs:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get('/task-families/match', async ({ query, status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const { name } = query as { name?: string }
+
+            if (!name?.trim()) {
+              return status(400, {
+                message: 'name query parameter is required',
+              })
+            }
+
+            const families = await db
+              .select()
+              .from(taskFamiliesTable)
+              .where(
+                and(
+                  eq(taskFamiliesTable.userId, userId),
+                  sql`${taskFamiliesTable.namePattern} is not null`,
+                ),
+              )
+
+            const matches = families.filter(
+              (f) =>
+                f.namePattern && matchesPattern(f.namePattern, name.trim()),
+            )
+
+            return { families: matches }
+          } catch (err) {
+            console.error('Error matching task family:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .get('/task-families', async ({ status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const families = await db
+              .select()
+              .from(taskFamiliesTable)
+              .where(eq(taskFamiliesTable.userId, userId))
+              .orderBy(taskFamiliesTable.name)
+            return { families }
+          } catch (err) {
+            console.error('Error fetching task families:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .post('/task-families', async ({ body, status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const { name, namePattern, defaultExtraInfo, streakId, taskId } =
+              body as {
+                name: string
+                namePattern?: string | null
+                defaultExtraInfo?: string | null
+                streakId?: number | null
+                taskId: number
+              }
+
+            if (!name?.trim()) {
+              return status(400, { message: 'Family name is required' })
+            }
+
+            const task = await db
+              .select()
+              .from(tasksTable)
+              .where(
+                and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)),
+              )
+              .limit(1)
+
+            if (task.length === 0) {
+              return status(404, { message: 'Task not found' })
+            }
+
+            if (streakId != null) {
+              const streakCheck = await db
+                .select({ id: streaksTable.id })
+                .from(streaksTable)
+                .where(
+                  and(
+                    eq(streaksTable.id, streakId),
+                    eq(streaksTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+              if (streakCheck.length === 0)
+                return status(403, {
+                  message: 'Streak not found or not owned by user',
+                })
+            }
+
+            const [family] = await db
+              .insert(taskFamiliesTable)
+              .values({
+                userId,
+                name: name.trim(),
+                namePattern: namePattern?.trim() || null,
+                defaultExtraInfo: normalizeOptionalText(defaultExtraInfo),
+                streakId: streakId ?? null,
+              })
+              .returning()
+
+            await db
+              .update(tasksTable)
+              .set({
+                familyId: family.id,
+                defaultExtraInfo: family.defaultExtraInfo,
+                streakId: family.streakId,
+                updatedAt: new Date(),
+              })
+              .where(
+                and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)),
+              )
+
+            broadcast(userId, { type: 'task.families.changed' })
+            return { family }
+          } catch (err) {
+            console.error('Error creating task family:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .patch(
+          '/task-families/:id',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const familyId = parseInt(id)
+              if (Number.isNaN(familyId)) {
+                return status(400, { message: 'Invalid family ID' })
+              }
+
+              const { name, namePattern, defaultExtraInfo, streakId } =
+                body as {
+                  name?: string
+                  namePattern?: string | null
+                  defaultExtraInfo?: string | null
+                  streakId?: number | null
+                }
+
+              const existing = await db
+                .select()
+                .from(taskFamiliesTable)
+                .where(
+                  and(
+                    eq(taskFamiliesTable.id, familyId),
+                    eq(taskFamiliesTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+
+              if (existing.length === 0) {
+                return status(404, { message: 'Family not found' })
+              }
+
+              if (streakId != null) {
+                const streakCheck = await db
+                  .select({ id: streaksTable.id })
+                  .from(streaksTable)
+                  .where(
+                    and(
+                      eq(streaksTable.id, streakId),
+                      eq(streaksTable.userId, userId),
+                    ),
+                  )
+                  .limit(1)
+                if (streakCheck.length === 0)
+                  return status(403, {
+                    message: 'Streak not found or not owned by user',
+                  })
+              }
+
+              const updates: Partial<typeof taskFamiliesTable.$inferInsert> = {
+                updatedAt: new Date(),
+              }
+              if (name !== undefined) updates.name = name.trim()
+              if (namePattern !== undefined)
+                updates.namePattern = namePattern?.trim() || null
+              if (defaultExtraInfo !== undefined)
+                updates.defaultExtraInfo =
+                  normalizeOptionalText(defaultExtraInfo)
+              if (streakId !== undefined) updates.streakId = streakId ?? null
+
+              const [updated] = await db
+                .update(taskFamiliesTable)
+                .set(updates)
+                .where(
+                  and(
+                    eq(taskFamiliesTable.id, familyId),
+                    eq(taskFamiliesTable.userId, userId),
+                  ),
+                )
+                .returning()
+
+              if (defaultExtraInfo !== undefined || streakId !== undefined) {
+                await db
+                  .update(tasksTable)
+                  .set({
+                    ...(defaultExtraInfo !== undefined
+                      ? { defaultExtraInfo: updated.defaultExtraInfo }
+                      : {}),
+                    ...(streakId !== undefined
+                      ? { streakId: updated.streakId }
+                      : {}),
+                    updatedAt: new Date(),
+                  })
+                  .where(
+                    and(
+                      eq(tasksTable.familyId, familyId),
+                      eq(tasksTable.userId, userId),
+                    ),
+                  )
+              }
+
+              broadcast(userId, { type: 'task.families.changed' })
+              return { family: updated }
+            } catch (err) {
+              console.error('Error updating task family:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .delete(
+          '/task-families/:id',
+          async ({ params: { id }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const familyId = parseInt(id)
+              if (Number.isNaN(familyId)) {
+                return status(400, { message: 'Invalid family ID' })
+              }
+
+              const existing = await db
+                .select()
+                .from(taskFamiliesTable)
+                .where(
+                  and(
+                    eq(taskFamiliesTable.id, familyId),
+                    eq(taskFamiliesTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+
+              if (existing.length === 0) {
+                return status(404, { message: 'Family not found' })
+              }
+
+              await db
+                .update(tasksTable)
+                .set({ familyId: null, updatedAt: new Date() })
+                .where(
+                  and(
+                    eq(tasksTable.familyId, familyId),
+                    eq(tasksTable.userId, userId),
+                  ),
+                )
+
+              await db
+                .delete(taskFamiliesTable)
+                .where(
+                  and(
+                    eq(taskFamiliesTable.id, familyId),
+                    eq(taskFamiliesTable.userId, userId),
+                  ),
+                )
+
+              broadcast(userId, { type: 'task.families.changed' })
+              return { success: true }
+            } catch (err) {
+              console.error('Error deleting task family:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .post(
+          '/task-families/:id/members',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const familyId = parseInt(id)
+              if (Number.isNaN(familyId)) {
+                return status(400, { message: 'Invalid family ID' })
+              }
+
+              const { taskId } = body as { taskId: number }
+
+              const [family, task] = await Promise.all([
+                db
+                  .select()
+                  .from(taskFamiliesTable)
+                  .where(
+                    and(
+                      eq(taskFamiliesTable.id, familyId),
+                      eq(taskFamiliesTable.userId, userId),
+                    ),
+                  )
+                  .limit(1),
+                db
+                  .select()
+                  .from(tasksTable)
+                  .where(
+                    and(
+                      eq(tasksTable.id, taskId),
+                      eq(tasksTable.userId, userId),
+                    ),
+                  )
+                  .limit(1),
+              ])
+
+              if (family.length === 0)
+                return status(404, { message: 'Family not found' })
+              if (task.length === 0)
+                return status(404, { message: 'Task not found' })
+
+              const [updated] = await db
+                .update(tasksTable)
+                .set({
+                  familyId,
+                  defaultExtraInfo: family[0].defaultExtraInfo,
+                  streakId: family[0].streakId,
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)),
+                )
+                .returning()
+
+              broadcast(userId, { type: 'task.families.changed' })
+              return { task: updated }
+            } catch (err) {
+              console.error('Error adding task to family:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .delete(
+          '/task-families/:id/members/:taskId',
+          async ({ params: { id, taskId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const familyId = parseInt(id)
+              const taskIdNum = parseInt(taskId)
+              if (Number.isNaN(familyId) || Number.isNaN(taskIdNum)) {
+                return status(400, { message: 'Invalid ID' })
+              }
+
+              const task = await db
+                .select()
+                .from(tasksTable)
+                .where(
+                  and(
+                    eq(tasksTable.id, taskIdNum),
+                    eq(tasksTable.userId, userId),
+                    eq(tasksTable.familyId, familyId),
+                  ),
+                )
+                .limit(1)
+
+              if (task.length === 0) {
+                return status(404, { message: 'Task not found in this family' })
+              }
+
+              const [updated] = await db
+                .update(tasksTable)
+                .set({ familyId: null, updatedAt: new Date() })
+                .where(
+                  and(
+                    eq(tasksTable.id, taskIdNum),
+                    eq(tasksTable.userId, userId),
+                  ),
+                )
+                .returning()
+
+              broadcast(userId, { type: 'task.families.changed' })
+              return { task: updated }
+            } catch (err) {
+              console.error('Error removing task from family:', err)
               return status(500, { message: 'Internal server error' })
             }
           },

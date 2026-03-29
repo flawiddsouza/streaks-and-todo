@@ -128,6 +128,7 @@ interface TodoCalendarViewProps {
   onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>
   groupId?: number
   filterQuery?: string
+  onNewTaskCreated?: (task: { id: number; task: string }) => void
 }
 
 interface DayData {
@@ -767,6 +768,7 @@ export default function TodoCalendarView({
   onTaskDataChange,
   groupId,
   filterQuery = '',
+  onNewTaskCreated,
 }: TodoCalendarViewProps) {
   const [viewMode, setViewMode] = useState<'month' | 'week'>('month')
   const [currentMonth, setCurrentMonth] = useState(dayjs())
@@ -1019,7 +1021,7 @@ export default function TodoCalendarView({
       if (!groupId) return
 
       try {
-        await handleTaskSelection(
+        const created = await handleTaskSelection(
           selectedTask,
           inputValue,
           date,
@@ -1028,13 +1030,14 @@ export default function TodoCalendarView({
           dropdownTasks,
           onTaskDataChange,
         )
+        if (created) onNewTaskCreated?.(created)
         reset()
       } catch (err) {
         console.error('Error handling task selection:', err)
         alert((err as Error).message)
       }
     },
-    [groupId, onTaskDataChange, dropdownTasks],
+    [groupId, onTaskDataChange, dropdownTasks, onNewTaskCreated],
   )
 
   const handleTaskReorder = useCallback(

@@ -48,6 +48,7 @@ interface TodoKanbanViewProps {
   groupId?: number
   filterQuery?: string
   settings: GroupSettings
+  onNewTaskCreated?: (task: { id: number; task: string }) => void
 }
 
 interface KanbanCard {
@@ -907,6 +908,7 @@ export default function TodoKanbanView({
   groupId,
   filterQuery = '',
   settings,
+  onNewTaskCreated,
 }: TodoKanbanViewProps) {
   const [editingTask, setEditingTask] = useState<{
     logId: number
@@ -1261,7 +1263,7 @@ export default function TodoKanbanView({
       if (!groupId) return
 
       try {
-        await handleTaskSelection(
+        const created = await handleTaskSelection(
           selectedTask,
           inputValue,
           date,
@@ -1270,13 +1272,14 @@ export default function TodoKanbanView({
           allTasks,
           onTaskDataChange,
         )
+        if (created) onNewTaskCreated?.(created)
         reset()
       } catch (err) {
         console.error('Error handling task selection:', err)
         alert((err as Error).message)
       }
     },
-    [groupId, onTaskDataChange, allTasks],
+    [groupId, onTaskDataChange, allTasks, onNewTaskCreated],
   )
 
   if (loading) {

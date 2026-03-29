@@ -36,6 +36,7 @@ export type AppEvent =
   | { type: 'pins.items.changed'; pinGroupId: number }
   | { type: 'pins.items.reordered'; pinGroupId: number }
   | { type: 'task.updated'; taskId: number; groupId: number }
+  | { type: 'task.families.changed' }
 
 type Listener = (evt: AppEvent) => void
 
