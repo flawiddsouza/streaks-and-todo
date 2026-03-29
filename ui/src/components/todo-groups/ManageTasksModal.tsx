@@ -1,6 +1,6 @@
 import Modal from '../shared/Modal'
 import '../shared/ManageGroupModal.css'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   type ApiStreak,
   fetchAllStreaks,
@@ -49,18 +49,30 @@ export default function ManageTasksModal({
     {},
   )
   const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({})
+  const inputRefs = useRef<Record<number, HTMLInputElement | null>>({})
+  const justExpandedIdRef = useRef<number | null>(null)
+  const justCollapsedIdRef = useRef<number | null>(null)
 
-  // Focus textarea and move cursor to end when field expands
-  useEffect(() => {
-    for (const [taskIdStr, isExpanded] of Object.entries(expandedFields)) {
-      if (isExpanded) {
-        const taskId = Number(taskIdStr)
-        const textarea = textareaRefs.current[taskId]
-        if (textarea) {
-          textarea.focus()
-          const len = textarea.value.length
-          textarea.setSelectionRange(len, len)
-        }
+  // Focus the right element and move cursor to end when field expands or collapses.
+  // expandedFields is the trigger: the new textarea/input is only in the DOM after this state changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: expandedFields is used as a DOM-sync trigger, not read directly
+  useLayoutEffect(() => {
+    const expandedId = justExpandedIdRef.current
+    if (expandedId !== null) {
+      justExpandedIdRef.current = null
+      const textarea = textareaRefs.current[expandedId]
+      if (textarea) {
+        textarea.focus()
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+      }
+    }
+    const collapsedId = justCollapsedIdRef.current
+    if (collapsedId !== null) {
+      justCollapsedIdRef.current = null
+      const input = inputRefs.current[collapsedId]
+      if (input) {
+        input.focus()
+        input.setSelectionRange(input.value.length, input.value.length)
       }
     }
   }, [expandedFields])
@@ -76,6 +88,15 @@ export default function ManageTasksModal({
           defaultExtraInfo:
             existing?.defaultExtraInfo ?? (t.defaultExtraInfo || ''),
           streakId: existing?.streakId ?? t.streakId ?? null,
+        }
+      }
+      return next
+    })
+    setExpandedFields((prev) => {
+      const next = { ...prev }
+      for (const t of group.tasks) {
+        if ((t.defaultExtraInfo || '').includes('\n') && !prev[t.id]) {
+          next[t.id] = true
         }
       }
       return next
@@ -186,19 +207,16 @@ export default function ManageTasksModal({
                   />
                 </div>
                 <div style={{ flex: 2 }}>
-                  {expandedFields[t.id] ||
-                  (drafts[t.id]?.defaultExtraInfo ?? '').includes('\n') ? (
+                  {expandedFields[t.id] ? (
                     <textarea
                       ref={(el) => {
                         textareaRefs.current[t.id] = el
                       }}
                       value={drafts[t.id]?.defaultExtraInfo ?? ''}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         handleChange(t.id, 'defaultExtraInfo', e.target.value)
-                      }
-                      onBlur={() => {
-                        const val = drafts[t.id]?.defaultExtraInfo ?? ''
-                        if (!val.includes('\n')) {
+                        if (!e.target.value.includes('\n')) {
+                          justCollapsedIdRef.current = t.id
                           setExpandedFields((s) => ({ ...s, [t.id]: false }))
                         }
                       }}
@@ -214,14 +232,22 @@ export default function ManageTasksModal({
                     />
                   ) : (
                     <input
+                      ref={(el) => {
+                        inputRefs.current[t.id] = el
+                      }}
                       type="text"
                       value={drafts[t.id]?.defaultExtraInfo ?? ''}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         handleChange(t.id, 'defaultExtraInfo', e.target.value)
-                      }
+                        if (e.target.value.includes('\n')) {
+                          justExpandedIdRef.current = t.id
+                          setExpandedFields((s) => ({ ...s, [t.id]: true }))
+                        }
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault()
+                          justExpandedIdRef.current = t.id
                           setExpandedFields((s) => ({ ...s, [t.id]: true }))
                           handleChange(
                             t.id,
