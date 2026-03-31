@@ -1886,6 +1886,7 @@ const api = new Elysia({ prefix: '/api' })
                     .from(taskLogTable)
                     .where(
                       and(
+                        eq(taskLogTable.userId, userId),
                         eq(taskLogTable.date, date),
                         eq(taskLogTable.done, done),
                       ),
@@ -1922,6 +1923,7 @@ const api = new Elysia({ prefix: '/api' })
                   .from(taskLogTable)
                   .where(
                     and(
+                      eq(taskLogTable.userId, userId),
                       eq(taskLogTable.date, date),
                       eq(taskLogTable.done, done),
                     ),
