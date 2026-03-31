@@ -947,12 +947,12 @@ export default function TodoCalendarView({
       if (!groupId) return
 
       try {
-        await deleteTaskLog(logId, date, groupId, onTaskDataChange)
+        await deleteTaskLog(logId, date, groupId)
       } catch (err) {
         alert((err as Error).message)
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   const handleEditTask = useCallback(
@@ -1060,13 +1060,12 @@ export default function TodoCalendarView({
           targetLogId,
           position,
           Boolean(targetDone),
-          onTaskDataChange,
         )
       } catch (err) {
         console.error('Error reordering tasks:', err)
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   // Handle dropping a pinned task into a cell list. If dropped relative to a specific

@@ -539,18 +539,12 @@ export default function FloatingTasksSidebar({
       if (!groupId) return
 
       try {
-        await deleteTaskLog(
-          logId,
-          FLOATING_TASK_DATE,
-          groupId,
-          onTaskDataChange,
-          false,
-        )
+        await deleteTaskLog(logId, FLOATING_TASK_DATE, groupId, false)
       } catch (err) {
         console.error('Error deleting floating task:', err)
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   const handleSchedule = useCallback((logId: number, taskId: number) => {
@@ -615,10 +609,9 @@ export default function FloatingTasksSidebar({
         targetLogId,
         position,
         false, // targetDone - floating tasks are always not done
-        onTaskDataChange,
       )
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   // Update menu position

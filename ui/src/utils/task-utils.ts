@@ -587,15 +587,13 @@ export async function copyTaskToClipboard(
  *
  * @param logId - The log ID to delete
  * @param date - The date of the task (for confirmation message)
- * @param groupId - The group ID to refresh after deletion
- * @param onTaskDataChange - State setter to update task data
+ * @param groupId - The group ID
  * @param skipConfirmation - Whether to skip confirmation dialog (default: false for non-today dates)
  */
 export async function deleteTaskLog(
   logId: number,
   date: string,
   groupId: number,
-  onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>,
   skipConfirmation = false,
 ): Promise<void> {
   if (!groupId) return
@@ -621,8 +619,6 @@ export async function deleteTaskLog(
 
   try {
     await deleteTaskLogById(logId)
-    const updated = await fetchGroupTasks(groupId)
-    if (updated) onTaskDataChange([updated])
   } catch (err) {
     console.error('Error deleting task:', err)
     throw err
@@ -811,7 +807,6 @@ export async function handleAddFromPin(
  * @param targetLogId - The target log ID to position relative to (-1 for end of list)
  * @param position - Position relative to target ('before' or 'after')
  * @param targetDone - The target done status
- * @param onTaskDataChange - State setter to update task data
  */
 export async function reorderTaskLog(
   groupId: number,
@@ -821,7 +816,6 @@ export async function reorderTaskLog(
   targetLogId: number,
   position: 'before' | 'after',
   targetDone: boolean,
-  onTaskDataChange: Dispatch<SetStateAction<TaskGroup[]>>,
 ): Promise<void> {
   if (!groupId) return
 
@@ -834,12 +828,6 @@ export async function reorderTaskLog(
       targetLogId: targetLogId === -1 ? undefined : targetLogId,
       position,
     })
-
-    // Refresh the data to reflect the new order
-    const updatedGroup = await fetchGroupTasks(groupId)
-    if (updatedGroup) {
-      onTaskDataChange([updatedGroup])
-    }
   } catch (err) {
     console.error('Error reordering tasks:', err)
     throw err

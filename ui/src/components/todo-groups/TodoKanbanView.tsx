@@ -1076,12 +1076,12 @@ export default function TodoKanbanView({
       if (!groupId) return
 
       try {
-        await deleteTaskLog(card.id, card.date, groupId, onTaskDataChange)
+        await deleteTaskLog(card.id, card.date, groupId)
       } catch {
         alert('Failed to delete task')
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   const updateCardExtraInfo = useCallback(
@@ -1218,13 +1218,12 @@ export default function TodoKanbanView({
           targetLogId,
           position,
           Boolean(targetDone),
-          onTaskDataChange,
         )
       } catch (err) {
         console.error('Error reordering cards:', err)
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   // Handle dropping a pinned task into the kanban board

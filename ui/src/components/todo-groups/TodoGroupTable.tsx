@@ -1251,12 +1251,12 @@ export default function TodoGroupTable({
       if (!groupId) return
 
       try {
-        await deleteTaskLog(logId, date, groupId, onTaskDataChange)
+        await deleteTaskLog(logId, date, groupId)
       } catch (err) {
         console.error('Error deleting task:', err)
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId],
   )
 
   const updateTaskExtraInfo = useCallback(
@@ -1409,13 +1409,12 @@ export default function TodoGroupTable({
           targetLogId,
           position,
           Boolean(finalTargetDone),
-          onTaskDataChange,
         )
       } catch (err) {
         console.error('Error reordering tasks:', err)
       }
     },
-    [groupId, onTaskDataChange, dateRows],
+    [groupId, dateRows],
   )
 
   const handlePastePinned = useCallback(
