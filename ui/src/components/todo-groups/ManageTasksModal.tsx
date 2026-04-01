@@ -178,19 +178,23 @@ export default function ManageTasksModal({
   const handleStreakChange = (taskId: number, streakId: number | null) =>
     updateDraft(taskId, { streakId })
 
-  const handleSave = async (taskId: number) => {
+  const handleSave = async (taskId: number, familyId: number | null) => {
     const draft = drafts[taskId]
     if (!draft) return
 
     setSaving((s) => ({ ...s, [taskId]: true }))
     try {
       const trimmedTask = draft.task.trim()
-      const trimmedExtra = draft.defaultExtraInfo.trim()
-      await onSaveTask(taskId, {
-        task: trimmedTask,
-        defaultExtraInfo: trimmedExtra === '' ? null : trimmedExtra,
-        streakId: draft.streakId,
-      })
+      if (familyId != null) {
+        await onSaveTask(taskId, { task: trimmedTask })
+      } else {
+        const trimmedExtra = draft.defaultExtraInfo.trim()
+        await onSaveTask(taskId, {
+          task: trimmedTask,
+          defaultExtraInfo: trimmedExtra === '' ? null : trimmedExtra,
+          streakId: draft.streakId,
+        })
+      }
     } finally {
       setSaving((s) => ({ ...s, [taskId]: false }))
     }
@@ -325,13 +329,24 @@ export default function ManageTasksModal({
                           <button
                             type="button"
                             className="btn btn-secondary btn-sm"
+                            title={
+                              allFamilies.find((f) => f.id === t.familyId)
+                                ?.name ?? 'Unknown family'
+                            }
                             onClick={() =>
                               setEditingFamily(
                                 allFamilies.find((f) => f.id === t.familyId) ??
                                   null,
                               )
                             }
-                            style={{ flex: 1, textAlign: 'left' }}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              textAlign: 'left',
+                              overflow: 'hidden',
+                              whiteSpace: 'nowrap',
+                              textOverflow: 'ellipsis',
+                            }}
                           >
                             ↗{' '}
                             {allFamilies.find((f) => f.id === t.familyId)
@@ -397,20 +412,18 @@ export default function ManageTasksModal({
                       {filling[t.id] ? 'Filling...' : 'Fill'}
                     </button>
                   )}
-                  {t.familyId == null && (
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => handleSave(t.id)}
-                      disabled={
-                        saving[t.id] ||
-                        !drafts[t.id] ||
-                        drafts[t.id].task.trim() === ''
-                      }
-                    >
-                      {saving[t.id] ? 'Saving...' : 'Save'}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => handleSave(t.id, t.familyId ?? null)}
+                    disabled={
+                      saving[t.id] ||
+                      !drafts[t.id] ||
+                      drafts[t.id].task.trim() === ''
+                    }
+                  >
+                    {saving[t.id] ? 'Saving...' : 'Save'}
+                  </button>
                 </div>
               </div>
             ))}
