@@ -175,7 +175,7 @@ export default function TodoGroup() {
           evt.type === 'pins.groups.reordered' ||
           evt.type === 'pins.items.changed' ||
           evt.type === 'pins.items.reordered' ||
-          (evt.type === 'task.updated' && taskData[0]?.id === gid) ||
+          (evt.type === 'task.updated' && evt.groupId === gid) ||
           evt.type === 'task.families.changed'
         ) {
           try {
@@ -191,7 +191,7 @@ export default function TodoGroup() {
     return () => {
       if (unsub) unsub()
     }
-  }, [groupId, taskData[0]?.id])
+  }, [groupId])
 
   return (
     <div className="page">
