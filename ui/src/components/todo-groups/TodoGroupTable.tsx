@@ -17,7 +17,8 @@ import {
 import { createPortal } from 'react-dom'
 import { TableVirtuoso, type TableVirtuosoHandle } from 'react-virtuoso'
 import {
-  fetchGroupTasks,
+  fetchGroupTaskDates,
+  mergeTaskGroupDates,
   setTaskLog,
   type TaskGroup,
   updateGroupNote,
@@ -904,6 +905,20 @@ export default function TodoGroupTable({
   const displayTasks = useMemo(() => getTasksForDisplay(taskData), [taskData])
 
   const taskLookup = useMemo(() => buildTaskLookup(taskData), [taskData])
+  const refreshDates = useCallback(
+    async (dates: string[]) => {
+      if (!groupId) return
+      const slice = await fetchGroupTaskDates(groupId, dates)
+      if (!slice) return
+
+      onTaskDataChange((prev) => {
+        const current = prev[0]
+        if (!current) return prev
+        return [mergeTaskGroupDates(current, slice)]
+      })
+    },
+    [groupId, onTaskDataChange],
+  )
 
   const dateNoteMap = useMemo(() => {
     const groupNotesArr = taskData[0]?.notes || []
@@ -1119,10 +1134,7 @@ export default function TodoGroupTable({
         // Update local state minimally without full refetch
         const taskLocation = taskLookup.get(taskId)
         if (!taskLocation) {
-          if (groupId) {
-            const updatedGroup = await fetchGroupTasks(groupId)
-            if (updatedGroup) onTaskDataChange([updatedGroup])
-          }
+          await refreshDates([date])
           return
         }
         const { groupIndex, taskIndex } = taskLocation
@@ -1157,7 +1169,7 @@ export default function TodoGroupTable({
         console.error('Error adding task to cell:', err)
       }
     },
-    [groupId, onTaskDataChange, taskLookup],
+    [onTaskDataChange, refreshDates, taskLookup],
   )
 
   // getAvailableTasks removed – suggestions should include all tasks and allow

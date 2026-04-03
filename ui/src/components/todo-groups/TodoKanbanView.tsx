@@ -17,7 +17,8 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  fetchGroupTasks,
+  fetchGroupTaskDates,
+  mergeTaskGroupDates,
   setTaskLog,
   type TaskGroup,
   updateTask,
@@ -999,6 +1000,21 @@ export default function TodoKanbanView({
     }
   }, [taskData, filterQuery, settings])
 
+  const refreshDates = useCallback(
+    async (dates: string[]) => {
+      if (!groupId) return
+      const slice = await fetchGroupTaskDates(groupId, dates)
+      if (!slice) return
+
+      onTaskDataChange((prev) => {
+        const current = prev[0]
+        if (!current) return prev
+        return [mergeTaskGroupDates(current, slice)]
+      })
+    },
+    [groupId, onTaskDataChange],
+  )
+
   const toggleCardStatus = useCallback(
     async (card: KanbanCard) => {
       if (!groupId) return
@@ -1057,8 +1073,7 @@ export default function TodoKanbanView({
 
         if (!didUpdate) {
           try {
-            const refreshed = await fetchGroupTasks(groupId)
-            if (refreshed) onTaskDataChange([refreshed])
+            await refreshDates([updatedLog.date])
           } catch (refreshErr) {
             console.error('Refresh after toggle failed:', refreshErr)
           }
@@ -1068,7 +1083,7 @@ export default function TodoKanbanView({
         alert('Failed to update task status')
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId, onTaskDataChange, refreshDates],
   )
 
   const deleteCard = useCallback(
@@ -1139,8 +1154,7 @@ export default function TodoKanbanView({
 
         if (!didUpdate) {
           try {
-            const refreshed = await fetchGroupTasks(groupId)
-            if (refreshed) onTaskDataChange([refreshed])
+            await refreshDates([updatedLog.date])
           } catch (refreshErr) {
             console.error('Refresh after edit failed:', refreshErr)
           }
@@ -1150,7 +1164,7 @@ export default function TodoKanbanView({
         alert('Failed to update task')
       }
     },
-    [groupId, onTaskDataChange],
+    [groupId, onTaskDataChange, refreshDates],
   )
 
   const handleEditTask = useCallback((card: KanbanCard) => {
@@ -1174,10 +1188,18 @@ export default function TodoKanbanView({
         const newName = editingTask.extraInfo.trim()
         if (newName) {
           await updateTask(editingTask.taskId, { task: newName })
-          if (groupId) {
-            const refreshed = await fetchGroupTasks(groupId)
-            if (refreshed) onTaskDataChange([refreshed])
-          }
+          onTaskDataChange((prev) => {
+            const current = prev[0]
+            if (!current) return prev
+            return [
+              {
+                ...current,
+                tasks: current.tasks.map((t) =>
+                  t.id === editingTask.taskId ? { ...t, task: newName } : t,
+                ),
+              },
+            ]
+          })
         }
       } else {
         const card = kanbanData.todoGroups
@@ -1192,7 +1214,7 @@ export default function TodoKanbanView({
     } finally {
       setEditingTask(null)
     }
-  }, [editingTask, kanbanData, updateCardExtraInfo, groupId, onTaskDataChange])
+  }, [editingTask, kanbanData, updateCardExtraInfo, onTaskDataChange])
 
   const handleEditCancel = useCallback(() => {
     setEditingTask(null)

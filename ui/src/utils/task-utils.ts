@@ -3,7 +3,8 @@ import type { Dispatch, SetStateAction } from 'react'
 import {
   createTaskAndLog,
   deleteTaskLogById,
-  fetchGroupTasks,
+  fetchGroupTaskDates,
+  mergeTaskGroupDates,
   moveTaskLog,
   setTaskLog,
   type TaskGroup,
@@ -758,23 +759,27 @@ export async function handleAddFromPin(
 
     // 2) If a specific target item is provided, find the new log and reorder relative to it
     if (!groupId) return
-    const updatedGroup = await fetchGroupTasks(groupId)
-    if (!updatedGroup) return
+    const updatedSlice = await fetchGroupTaskDates(groupId, [date])
+    if (!updatedSlice) return
+
+    onTaskDataChange((prev) => {
+      const current = prev[0]
+      if (!current) return prev
+      return [mergeTaskGroupDates(current, updatedSlice)]
+    })
 
     // Find the record we just added: last record for taskId on that date with matching done state
-    const t = updatedGroup.tasks.find((t) => t.id === pin.taskId)
+    const t = updatedSlice.tasks.find((task) => task.id === pin.taskId)
     const recs = (t?.records || []).filter(
       (r) => r.date === date && r.done === isDoneColumn,
     )
     const newest = recs.sort((a, b) => b.id - a.id)[0]
     if (!newest) {
-      onTaskDataChange([updatedGroup])
       return
     }
 
     // If there is no specific target, just refresh state and return
     if (targetLogId === -1) {
-      onTaskDataChange([updatedGroup])
       return
     }
 
@@ -788,8 +793,14 @@ export async function handleAddFromPin(
       position,
     })
 
-    const afterMove = await fetchGroupTasks(groupId)
-    if (afterMove) onTaskDataChange([afterMove])
+    const afterMoveSlice = await fetchGroupTaskDates(groupId, [date])
+    if (!afterMoveSlice) return
+
+    onTaskDataChange((prev) => {
+      const current = prev[0]
+      if (!current) return prev
+      return [mergeTaskGroupDates(current, afterMoveSlice)]
+    })
   } catch (err) {
     console.error('Error adding from pin:', err)
     throw err

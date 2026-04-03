@@ -16,7 +16,8 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  fetchGroupTasks,
+  fetchGroupTaskDates,
+  mergeTaskGroupDates,
   setTaskLog,
   type TaskGroup,
   updateTask,
@@ -811,6 +812,20 @@ export default function TodoCalendarView({
 
   // Non-expanded tasks for building display lists (prevents duplicate rendering)
   const displayTasks = useMemo(() => getTasksForDisplay(taskData), [taskData])
+  const refreshDates = useCallback(
+    async (dates: string[]) => {
+      if (!groupId) return
+      const slice = await fetchGroupTaskDates(groupId, dates)
+      if (!slice) return
+
+      onTaskDataChange((prev) => {
+        const current = prev[0]
+        if (!current) return prev
+        return [mergeTaskGroupDates(current, slice)]
+      })
+    },
+    [groupId, onTaskDataChange],
+  )
 
   const dateNoteMap = useMemo(() => {
     const groupNotesArr = taskData[0]?.notes || []
@@ -931,15 +946,13 @@ export default function TodoCalendarView({
         const newDone = !record.done
 
         await setTaskLog(taskId, date, newDone, record.extraInfo || null, logId)
-
-        const updated = await fetchGroupTasks(groupId)
-        if (updated) onTaskDataChange([updated])
+        await refreshDates([date])
       } catch (err) {
         console.error('Error toggling task:', err)
         alert((err as Error).message)
       }
     },
-    [displayTasks, groupId, onTaskDataChange],
+    [displayTasks, groupId, refreshDates],
   )
 
   const deleteTask = useCallback(
@@ -975,9 +988,12 @@ export default function TodoCalendarView({
     try {
       if (editingTask.isOneOff) {
         const newName = editValue.trim()
-        if (newName) {
-          await updateTask(editingTask.taskId, { task: newName })
+        if (!newName) {
+          setEditingTask(null)
+          setEditValue('')
+          return
         }
+        await updateTask(editingTask.taskId, { task: newName })
       } else {
         const task = displayTasks.find((t) => t.id === editingTask.taskId)
         if (!task) return
@@ -994,8 +1010,7 @@ export default function TodoCalendarView({
         )
       }
 
-      const updated = await fetchGroupTasks(groupId)
-      if (updated) onTaskDataChange([updated])
+      await refreshDates([editingTask.date])
 
       setEditingTask(null)
       setEditValue('')
@@ -1003,7 +1018,7 @@ export default function TodoCalendarView({
       console.error('Error saving edit:', err)
       alert((err as Error).message)
     }
-  }, [editingTask, editValue, groupId, onTaskDataChange, displayTasks])
+  }, [displayTasks, editValue, editingTask, groupId, refreshDates])
 
   const handleEditCancel = useCallback(() => {
     setEditingTask(null)

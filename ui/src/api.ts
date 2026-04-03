@@ -100,6 +100,21 @@ export interface ApiTaskGroupResponse {
   }[]
 }
 
+export interface ApiTaskGroupDateSliceResponse {
+  tasks: ApiTask[]
+  notes?: { date: string; note: string }[]
+  dates: string[]
+}
+
+interface ApiTaskMeta {
+  id: number
+  task: string
+  defaultExtraInfo?: string | null
+  streakId?: number | null
+  isOneOff?: boolean
+  familyId?: number | null
+}
+
 export interface ApiGroupsResponse {
   groups: ApiGroup[]
 }
@@ -167,6 +182,46 @@ export interface TaskGroup {
   }[]
 }
 
+export interface TaskGroupDateSlice {
+  tasks: TaskItem[]
+  notes?: { date: string; note: string }[]
+  dates: string[]
+}
+
+const mapTaskItem = (task: ApiTask): TaskItem => ({
+  id: task.id,
+  task: task.task,
+  defaultExtraInfo: task.defaultExtraInfo,
+  streakId: task.streakId ?? null,
+  isOneOff: task.isOneOff ?? false,
+  familyId: task.familyId ?? null,
+  records: task.logs.map((log) => ({
+    id: log.id,
+    date: log.date,
+    done: log.done,
+    extraInfo: log.extraInfo || undefined,
+    sortOrder: log.sortOrder,
+  })),
+})
+
+const mapTaskGroupBase = (data: ApiTaskGroupResponse) => ({
+  id: data.group.id,
+  name: data.group.name,
+  viewMode: data.group.viewMode,
+  settings: data.group.settings,
+  tasks: data.tasks.map(mapTaskItem),
+  notes: data.notes || [],
+})
+
+const mapTaskGroupDateSlice = (data: ApiTaskGroupDateSliceResponse) => ({
+  tasks: data.tasks.map(mapTaskItem),
+  notes: data.notes || [],
+  dates: data.dates,
+})
+
+const sortTaskRecords = (a: TaskRecord, b: TaskRecord) =>
+  a.date.localeCompare(b.date) || a.sortOrder - b.sortOrder || a.id - b.id
+
 export const fetchGroups = async (
   type: 'streaks' | 'tasks',
 ): Promise<ApiGroup[]> => {
@@ -232,31 +287,143 @@ export const fetchGroupTasks = async (
     const data: ApiTaskGroupResponse = await response.json()
 
     return {
-      id: data.group.id,
-      name: data.group.name,
-      viewMode: data.group.viewMode,
-      settings: data.group.settings,
-      tasks: data.tasks.map((task) => ({
-        id: task.id,
-        task: task.task,
-        defaultExtraInfo: task.defaultExtraInfo,
-        streakId: task.streakId ?? null,
-        isOneOff: task.isOneOff ?? false,
-        familyId: task.familyId ?? null,
-        records: task.logs.map((log) => ({
-          id: log.id,
-          date: log.date,
-          done: log.done,
-          extraInfo: log.extraInfo || undefined,
-          sortOrder: log.sortOrder,
-        })),
-      })),
-      notes: data.notes || [], // pass notes array
+      ...mapTaskGroupBase(data),
       pins: data.pins || [],
     }
   } catch (err) {
     console.error(`Error fetching tasks for group ${groupId}:`, err)
     return null
+  }
+}
+
+export const fetchGroupTaskDates = async (
+  groupId: number,
+  dates: string[],
+): Promise<TaskGroupDateSlice | null> => {
+  const uniqueDates = Array.from(new Set(dates)).filter(Boolean)
+  if (uniqueDates.length === 0) return null
+
+  try {
+    const params = new URLSearchParams()
+    for (const date of uniqueDates) {
+      params.append('date', date)
+    }
+    const response = await apiFetch(
+      `/task-groups/${groupId}/dates?${params.toString()}`,
+    )
+    if (!response.ok) {
+      throw new Error(`Failed to fetch date slice for group ${groupId}`)
+    }
+
+    const data: ApiTaskGroupDateSliceResponse = await response.json()
+    return mapTaskGroupDateSlice(data)
+  } catch (err) {
+    console.error(`Error fetching task date slice for group ${groupId}:`, err)
+    return null
+  }
+}
+
+export const mergeTaskGroupDates = (
+  current: TaskGroup,
+  slice: TaskGroupDateSlice,
+): TaskGroup => {
+  const dateSet = new Set(slice.dates)
+  const sliceTasksById = new Map(slice.tasks.map((task) => [task.id, task]))
+
+  const mergedExistingTasks = current.tasks.flatMap((currentTask) => {
+    const sliceTask = sliceTasksById.get(currentTask.id)
+    const preservedRecords = currentTask.records.filter(
+      (record) => !dateSet.has(record.date),
+    )
+
+    if (!sliceTask) {
+      return preservedRecords.length > 0
+        ? [{ ...currentTask, records: preservedRecords.sort(sortTaskRecords) }]
+        : []
+    }
+
+    return [
+      {
+        ...currentTask,
+        ...sliceTask,
+        records: [...preservedRecords, ...sliceTask.records].sort(
+          sortTaskRecords,
+        ),
+      },
+    ]
+  })
+
+  const newTasks = slice.tasks.filter(
+    (sliceTask) => !current.tasks.some((task) => task.id === sliceTask.id),
+  )
+
+  return {
+    ...current,
+    tasks: [...mergedExistingTasks, ...newTasks],
+    notes: [
+      ...(current.notes ?? []).filter((note) => !dateSet.has(note.date)),
+      ...(slice.notes ?? []),
+    ].sort((a, b) => a.date.localeCompare(b.date)),
+  }
+}
+
+export const fetchGroupPins = async (
+  groupId: number,
+): Promise<NonNullable<TaskGroup['pins']> | null> => {
+  try {
+    const response = await apiFetch(`/task-groups/${groupId}/pins`)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch pins for group ${groupId}`)
+    }
+    const data: { pins: NonNullable<TaskGroup['pins']> } = await response.json()
+    return data.pins
+  } catch (err) {
+    console.error(`Error fetching pins for group ${groupId}:`, err)
+    return null
+  }
+}
+
+export const fetchGroupTasksMeta = async (
+  groupId: number,
+): Promise<TaskItem[] | null> => {
+  try {
+    const response = await apiFetch(`/task-groups/${groupId}/tasks`)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tasks for group ${groupId}`)
+    }
+    const data: { tasks: ApiTaskMeta[] } = await response.json()
+    return data.tasks.map((task) => ({
+      id: task.id,
+      task: task.task,
+      defaultExtraInfo: task.defaultExtraInfo,
+      streakId: task.streakId ?? null,
+      isOneOff: task.isOneOff ?? false,
+      familyId: task.familyId ?? null,
+      records: [],
+    }))
+  } catch (err) {
+    console.error(`Error fetching task metadata for group ${groupId}:`, err)
+    return null
+  }
+}
+
+export const mergeGroupTasksMeta = (
+  current: TaskGroup,
+  updatedTasks: TaskItem[],
+): TaskGroup => {
+  const updatedById = new Map(updatedTasks.map((t) => [t.id, t]))
+  return {
+    ...current,
+    tasks: [
+      ...current.tasks.flatMap((t) => {
+        const updated = updatedById.get(t.id)
+        if (!updated) return []
+        return [{ ...t, ...updated, records: t.records }]
+      }),
+      ...updatedTasks
+        .filter((t) => !current.tasks.some((ct) => ct.id === t.id))
+        .map((t) => ({ ...t, records: [] })),
+    ],
   }
 }
 

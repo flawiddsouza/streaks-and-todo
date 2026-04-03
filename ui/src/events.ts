@@ -20,10 +20,11 @@ export type AppEvent =
       linkedStreakId?: number
     }
   | { type: 'task.log.deleted'; taskId: number; groupId?: number; date: string }
-  | { type: 'tasks.reordered'; date: string }
+  | { type: 'tasks.reordered'; groupId?: number; date: string }
   | {
       type: 'task.log.moved'
       taskId: number
+      groupId?: number
       logId: number
       fromDate: string
       toDate: string

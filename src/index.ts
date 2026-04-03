@@ -252,6 +252,184 @@ function broadcast(userId: string, payload: unknown) {
   for (const q of Array.from(set)) q.push(data)
 }
 
+async function fetchPinsForGroup(groupIdNum: number, userId: string) {
+  const pinGroups = await db
+    .select()
+    .from(groupsTable)
+    .where(
+      and(
+        eq(groupsTable.group_id, groupIdNum),
+        eq(groupsTable.type, 'pins'),
+        eq(groupsTable.userId, userId),
+      ),
+    )
+    .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
+
+  const pinGroupIds = pinGroups.map((g) => g.id)
+  const pinItems =
+    pinGroupIds.length > 0
+      ? await db
+          .select({
+            pin: groupPinsTable,
+            task: tasksTable,
+          })
+          .from(groupPinsTable)
+          .innerJoin(tasksTable, eq(groupPinsTable.taskId, tasksTable.id))
+          .where(
+            and(
+              inArray(groupPinsTable.groupId, pinGroupIds),
+              eq(groupPinsTable.userId, userId),
+            ),
+          )
+      : []
+
+  return pinGroups.map((pg) => ({
+    id: pg.id,
+    name: pg.name,
+    sortOrder: pg.sortOrder,
+    tasks: pinItems
+      .filter((pi) => pi.pin.groupId === pg.id)
+      .sort((a, b) => a.pin.sortOrder - b.pin.sortOrder)
+      .map((pi) => ({
+        id: pi.pin.id,
+        taskId: pi.task.id,
+        task: pi.task.task,
+        extraInfo: pi.pin.extraInfo,
+        sortOrder: pi.pin.sortOrder,
+      })),
+  }))
+}
+
+async function loadTaskGroupData(
+  groupIdNum: number,
+  userId: string,
+  options?: {
+    dates?: string[]
+    includePins?: boolean
+    onlyAffectedTasks?: boolean
+  },
+) {
+  const uniqueDates =
+    options?.dates && options.dates.length > 0
+      ? Array.from(new Set(options.dates))
+      : undefined
+
+  const group = await db
+    .select()
+    .from(groupsTable)
+    .where(and(eq(groupsTable.id, groupIdNum), eq(groupsTable.userId, userId)))
+    .limit(1)
+
+  if (group.length === 0) {
+    return { kind: 'not-found' as const }
+  }
+
+  if (group[0].type !== 'tasks') {
+    return { kind: 'wrong-type' as const }
+  }
+
+  let tasks: (typeof tasksTable.$inferSelect)[] = []
+  let taskLogs: (typeof taskLogTable.$inferSelect)[] = []
+
+  if (uniqueDates && options?.onlyAffectedTasks) {
+    const taskLogRows = await db
+      .select({
+        task: tasksTable,
+        log: taskLogTable,
+      })
+      .from(taskLogTable)
+      .innerJoin(tasksTable, eq(taskLogTable.taskId, tasksTable.id))
+      .where(
+        and(
+          eq(taskLogTable.userId, userId),
+          eq(tasksTable.userId, userId),
+          eq(tasksTable.groupId, groupIdNum),
+          inArray(taskLogTable.date, uniqueDates),
+        ),
+      )
+      .orderBy(taskLogTable.date, taskLogTable.sortOrder)
+
+    const taskMap = new Map<number, typeof tasksTable.$inferSelect>()
+    for (const row of taskLogRows) {
+      taskMap.set(row.task.id, row.task)
+    }
+
+    tasks = Array.from(taskMap.values())
+    taskLogs = taskLogRows.map((row) => row.log)
+  } else {
+    tasks = await db
+      .select()
+      .from(tasksTable)
+      .where(
+        and(eq(tasksTable.groupId, groupIdNum), eq(tasksTable.userId, userId)),
+      )
+
+    const taskIds = tasks.map((task) => task.id)
+    const taskLogFilters = [
+      eq(taskLogTable.userId, userId),
+      ...(taskIds.length > 0 ? [inArray(taskLogTable.taskId, taskIds)] : []),
+      ...(uniqueDates ? [inArray(taskLogTable.date, uniqueDates)] : []),
+    ]
+    taskLogs =
+      taskIds.length > 0
+        ? await db
+            .select()
+            .from(taskLogTable)
+            .where(and(...taskLogFilters))
+            .orderBy(taskLogTable.date, taskLogTable.sortOrder)
+        : []
+  }
+
+  const groupNoteFilters = [
+    eq(groupNotesTable.groupId, groupIdNum),
+    eq(groupNotesTable.userId, userId),
+    ...(uniqueDates ? [inArray(groupNotesTable.date, uniqueDates)] : []),
+  ]
+  const groupNotes = await db
+    .select()
+    .from(groupNotesTable)
+    .where(and(...groupNoteFilters))
+
+  let pins: Array<{
+    id: number
+    name: string
+    sortOrder: number
+    tasks: {
+      id: number
+      taskId: number
+      task: string
+      extraInfo: string | null
+      sortOrder: number
+    }[]
+  }> = []
+
+  if (options?.includePins) {
+    pins = await fetchPinsForGroup(groupIdNum, userId)
+  }
+
+  return {
+    kind: 'ok' as const,
+    group: group[0],
+    tasks,
+    taskLogs,
+    groupNotes,
+    pins,
+  }
+}
+
+function groupTaskLogsByTaskId(taskLogs: (typeof taskLogTable.$inferSelect)[]) {
+  const logsByTaskId = new Map<number, (typeof taskLogTable.$inferSelect)[]>()
+  for (const log of taskLogs) {
+    const existing = logsByTaskId.get(log.taskId)
+    if (existing) {
+      existing.push(log)
+    } else {
+      logsByTaskId.set(log.taskId, [log])
+    }
+  }
+  return logsByTaskId
+}
+
 const api = new Elysia({ prefix: '/api' })
   .use(
     cors({
@@ -456,8 +634,109 @@ const api = new Elysia({ prefix: '/api' })
                 return status(400, { message: 'Invalid group ID' })
               }
 
+              const groupData = await loadTaskGroupData(groupIdNum, userId, {
+                includePins: true,
+              })
+
+              if (groupData.kind === 'not-found') {
+                return status(404, { message: 'Group not found' })
+              }
+              if (groupData.kind === 'wrong-type') {
+                return status(400, { message: 'Group is not a task group' })
+              }
+
+              const logsByTaskId = groupTaskLogsByTaskId(groupData.taskLogs)
+
+              return {
+                group: {
+                  ...groupData.group,
+                  viewMode: toViewModeString(groupData.group.viewMode),
+                },
+                tasks: groupData.tasks.map((task) => ({
+                  ...task,
+                  logs: logsByTaskId.get(task.id) || [],
+                })),
+                notes: groupData.groupNotes.map((note) => ({
+                  date: note.date,
+                  note: note.note,
+                })),
+                pins: groupData.pins,
+              }
+            } catch (err) {
+              console.error('Error fetching task group data:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get(
+          '/task-groups/:groupId/dates',
+          async ({ params: { groupId }, request, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const groupIdNum = parseInt(groupId)
+
+              if (Number.isNaN(groupIdNum)) {
+                return status(400, { message: 'Invalid group ID' })
+              }
+
+              const dates = Array.from(
+                new Set(new URL(request.url).searchParams.getAll('date')),
+              )
+
+              if (
+                dates.length === 0 ||
+                dates.some((date) => !DATE_RE.test(date))
+              ) {
+                return status(400, {
+                  message:
+                    'Provide one or more valid date query params (YYYY-MM-DD)',
+                })
+              }
+
+              const groupData = await loadTaskGroupData(groupIdNum, userId, {
+                dates,
+                onlyAffectedTasks: true,
+              })
+
+              if (groupData.kind === 'not-found') {
+                return status(404, { message: 'Group not found' })
+              }
+              if (groupData.kind === 'wrong-type') {
+                return status(400, { message: 'Group is not a task group' })
+              }
+
+              const logsByTaskId = groupTaskLogsByTaskId(groupData.taskLogs)
+
+              return {
+                tasks: groupData.tasks.map((task) => ({
+                  ...task,
+                  logs: logsByTaskId.get(task.id) || [],
+                })),
+                notes: groupData.groupNotes.map((note) => ({
+                  date: note.date,
+                  note: note.note,
+                })),
+                dates,
+              }
+            } catch (err) {
+              console.error('Error fetching task group date slice:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get(
+          '/task-groups/:groupId/pins',
+          async ({ params: { groupId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const groupIdNum = parseInt(groupId)
+
+              if (Number.isNaN(groupIdNum)) {
+                return status(400, { message: 'Invalid group ID' })
+              }
+
               const group = await db
-                .select()
+                .select({ type: groupsTable.type })
                 .from(groupsTable)
                 .where(
                   and(
@@ -470,14 +749,55 @@ const api = new Elysia({ prefix: '/api' })
               if (group.length === 0) {
                 return status(404, { message: 'Group not found' })
               }
+              if (group[0].type !== 'tasks') {
+                return status(400, { message: 'Group is not a task group' })
+              }
 
-              // Check if this is actually a task group
+              return { pins: await fetchPinsForGroup(groupIdNum, userId) }
+            } catch (err) {
+              console.error('Error fetching pins:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get(
+          '/task-groups/:groupId/tasks',
+          async ({ params: { groupId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const groupIdNum = parseInt(groupId)
+
+              if (Number.isNaN(groupIdNum)) {
+                return status(400, { message: 'Invalid group ID' })
+              }
+
+              const group = await db
+                .select({ type: groupsTable.type })
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.id, groupIdNum),
+                    eq(groupsTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+
+              if (group.length === 0) {
+                return status(404, { message: 'Group not found' })
+              }
               if (group[0].type !== 'tasks') {
                 return status(400, { message: 'Group is not a task group' })
               }
 
               const tasks = await db
-                .select()
+                .select({
+                  id: tasksTable.id,
+                  task: tasksTable.task,
+                  defaultExtraInfo: tasksTable.defaultExtraInfo,
+                  streakId: tasksTable.streakId,
+                  isOneOff: tasksTable.isOneOff,
+                  familyId: tasksTable.familyId,
+                })
                 .from(tasksTable)
                 .where(
                   and(
@@ -486,99 +806,9 @@ const api = new Elysia({ prefix: '/api' })
                   ),
                 )
 
-              const taskIds = tasks.map((task) => task.id)
-              const taskLogs =
-                taskIds.length > 0
-                  ? await db
-                      .select()
-                      .from(taskLogTable)
-                      .where(
-                        and(
-                          inArray(taskLogTable.taskId, taskIds),
-                          eq(taskLogTable.userId, userId),
-                        ),
-                      )
-                      .orderBy(taskLogTable.date, taskLogTable.sortOrder)
-                  : []
-
-              // Fetch group notes for this group
-              const groupNotes = await db
-                .select()
-                .from(groupNotesTable)
-                .where(
-                  and(
-                    eq(groupNotesTable.groupId, groupIdNum),
-                    eq(groupNotesTable.userId, userId),
-                  ),
-                )
-
-              // Fetch any pin subgroups under this task group
-              const pinGroups = await db
-                .select()
-                .from(groupsTable)
-                .where(
-                  and(
-                    eq(groupsTable.group_id, groupIdNum),
-                    eq(groupsTable.type, 'pins'),
-                    eq(groupsTable.userId, userId),
-                  ),
-                )
-                .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
-
-              const pinGroupIds = pinGroups.map((g) => g.id)
-              const pinItems =
-                pinGroupIds.length > 0
-                  ? await db
-                      .select({
-                        pin: groupPinsTable,
-                        task: tasksTable,
-                      })
-                      .from(groupPinsTable)
-                      .innerJoin(
-                        tasksTable,
-                        eq(groupPinsTable.taskId, tasksTable.id),
-                      )
-                      .where(
-                        and(
-                          inArray(groupPinsTable.groupId, pinGroupIds),
-                          eq(groupPinsTable.userId, userId),
-                        ),
-                      )
-                  : []
-
-              const pins = pinGroups.map((pg) => ({
-                id: pg.id,
-                name: pg.name,
-                sortOrder: pg.sortOrder,
-                tasks: pinItems
-                  .filter((pi) => pi.pin.groupId === pg.id)
-                  .sort((a, b) => a.pin.sortOrder - b.pin.sortOrder)
-                  .map((pi) => ({
-                    id: pi.pin.id,
-                    taskId: pi.task.id,
-                    task: pi.task.task,
-                    extraInfo: pi.pin.extraInfo,
-                    sortOrder: pi.pin.sortOrder,
-                  })),
-              }))
-
-              return {
-                group: {
-                  ...group[0],
-                  viewMode: toViewModeString(group[0].viewMode),
-                },
-                tasks: tasks.map((task) => ({
-                  ...task,
-                  logs: taskLogs.filter((log) => log.taskId === task.id),
-                })),
-                notes: groupNotes.map((note) => ({
-                  date: note.date,
-                  note: note.note,
-                })),
-                pins,
-              }
+              return { tasks }
             } catch (err) {
-              console.error('Error fetching task group data:', err)
+              console.error('Error fetching task metadata:', err)
               return status(500, { message: 'Internal server error' })
             }
           },
@@ -2187,7 +2417,26 @@ const api = new Elysia({ prefix: '/api' })
                 )
             }
 
-            broadcast(userId, { type: 'tasks.reordered', date })
+            let groupIdForBroadcast: number | undefined
+            if (taskLogs.length > 0) {
+              const [taskRow] = await db
+                .select({ groupId: tasksTable.groupId })
+                .from(tasksTable)
+                .where(
+                  and(
+                    eq(tasksTable.id, taskLogs[0].taskId),
+                    eq(tasksTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+              groupIdForBroadcast = taskRow?.groupId
+            }
+
+            broadcast(userId, {
+              type: 'tasks.reordered',
+              date,
+              groupId: groupIdForBroadcast,
+            })
             return { message: 'Task logs reordered successfully' }
           } catch (err) {
             console.error('Error reordering task logs:', err)
@@ -2446,6 +2695,7 @@ const api = new Elysia({ prefix: '/api' })
             broadcast(userId, {
               type: 'task.log.moved',
               taskId: sourceLog.taskId,
+              groupId: task[0]?.groupId,
               logId,
               fromDate,
               toDate,

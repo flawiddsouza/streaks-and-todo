@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import {
   type ApiTaskFamily,
+  fetchGroupPins,
+  fetchGroupTaskDates,
   fetchGroupTasks,
+  fetchGroupTasksMeta,
   matchTaskFamily,
+  mergeGroupTasksMeta,
+  mergeTaskGroupDates,
   type TaskGroup,
   updateGroup,
   updateTask,
@@ -119,6 +124,55 @@ export default function TodoGroup() {
     }
   }
 
+  const refreshGroup = useCallback(async (groupIdNumber: number) => {
+    const taskGroup = await fetchGroupTasks(groupIdNumber)
+    if (!taskGroup) {
+      setError('Group not found')
+      return
+    }
+
+    setRawTaskData([taskGroup])
+    if (titleRef.current) {
+      titleRef.current.textContent = taskGroup.name || ''
+    }
+    setViewMode(taskGroup.viewMode || 'table')
+    setSettings(taskGroup.settings || {})
+  }, [])
+
+  const refreshDates = useCallback(
+    async (groupIdNumber: number, dates: string[]) => {
+      const slice = await fetchGroupTaskDates(groupIdNumber, dates)
+      if (!slice) return
+
+      setRawTaskData((prev) => {
+        const current = prev[0]
+        if (!current) return prev
+        return [mergeTaskGroupDates(current, slice)]
+      })
+    },
+    [],
+  )
+
+  const refreshPins = useCallback(async (groupIdNumber: number) => {
+    const pins = await fetchGroupPins(groupIdNumber)
+    if (!pins) return
+    setRawTaskData((prev) => {
+      const current = prev[0]
+      if (!current) return prev
+      return [{ ...current, pins }]
+    })
+  }, [])
+
+  const refreshTasksMeta = useCallback(async (groupIdNumber: number) => {
+    const updatedTasks = await fetchGroupTasksMeta(groupIdNumber)
+    if (!updatedTasks) return
+    setRawTaskData((prev) => {
+      const current = prev[0]
+      if (!current) return prev
+      return [mergeGroupTasksMeta(current, updatedTasks)]
+    })
+  }, [])
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -132,19 +186,7 @@ export default function TodoGroup() {
             return
           }
 
-          const taskGroup = await fetchGroupTasks(groupIdNumber)
-          if (taskGroup) {
-            setRawTaskData([taskGroup])
-            if (titleRef.current) {
-              titleRef.current.textContent = taskGroup.name || ''
-            }
-            // Set view mode from group data, defaulting to 'table'
-            setViewMode(taskGroup.viewMode || 'table')
-            // Set settings from group data
-            setSettings(taskGroup.settings || {})
-          } else {
-            setError('Group not found')
-          }
+          await refreshGroup(groupIdNumber)
         } else {
           setError('No group ID provided')
         }
@@ -163,27 +205,46 @@ export default function TodoGroup() {
     if (groupId) {
       const gid = parseInt(groupId, 10)
       unsub = onEvent(async (evt: AppEvent) => {
-        // Only refresh when the event concerns this group
-        if (
-          (evt.type === 'task.log.updated' && evt.groupId === gid) ||
-          (evt.type === 'task.log.deleted' && evt.groupId === gid) ||
-          evt.type === 'tasks.reordered' ||
-          (evt.type === 'group.note.updated' && evt.groupId === gid) ||
-          evt.type === 'task.log.moved' ||
-          (evt.type === 'pins.groups.changed' && evt.parentGroupId === gid) ||
-          (evt.type === 'pins.group.deleted' && evt.parentGroupId === gid) ||
-          evt.type === 'pins.groups.reordered' ||
-          evt.type === 'pins.items.changed' ||
-          evt.type === 'pins.items.reordered' ||
-          (evt.type === 'task.updated' && evt.groupId === gid) ||
-          evt.type === 'task.families.changed'
-        ) {
-          try {
-            const updated = await fetchGroupTasks(gid)
-            if (updated) setRawTaskData([updated])
-          } catch (err) {
-            console.error('Live refresh failed:', err)
+        try {
+          if (evt.type === 'task.log.updated' && evt.groupId === gid) {
+            await refreshDates(gid, [evt.date])
+            return
           }
+          if (evt.type === 'task.log.deleted' && evt.groupId === gid) {
+            await refreshDates(gid, [evt.date])
+            return
+          }
+          if (evt.type === 'tasks.reordered' && evt.groupId === gid) {
+            await refreshDates(gid, [evt.date])
+            return
+          }
+          if (evt.type === 'group.note.updated' && evt.groupId === gid) {
+            await refreshDates(gid, [evt.date])
+            return
+          }
+          if (evt.type === 'task.log.moved' && evt.groupId === gid) {
+            await refreshDates(gid, [evt.fromDate, evt.toDate])
+            return
+          }
+          if (
+            (evt.type === 'pins.groups.changed' && evt.parentGroupId === gid) ||
+            (evt.type === 'pins.group.deleted' && evt.parentGroupId === gid) ||
+            (evt.type === 'pins.groups.reordered' &&
+              evt.parentGroupId === gid) ||
+            evt.type === 'pins.items.changed' ||
+            evt.type === 'pins.items.reordered'
+          ) {
+            await refreshPins(gid)
+            return
+          }
+          if (
+            (evt.type === 'task.updated' && evt.groupId === gid) ||
+            evt.type === 'task.families.changed'
+          ) {
+            await refreshTasksMeta(gid)
+          }
+        } catch (err) {
+          console.error('Live refresh failed:', err)
         }
       })
     }
@@ -191,7 +252,7 @@ export default function TodoGroup() {
     return () => {
       if (unsub) unsub()
     }
-  }, [groupId])
+  }, [groupId, refreshDates, refreshGroup, refreshPins, refreshTasksMeta])
 
   return (
     <div className="page">
@@ -395,7 +456,13 @@ export default function TodoGroup() {
         <PinnedTasks
           parentGroupId={parseInt(groupId, 10)}
           groupData={taskData[0]}
-          onRefresh={(updated) => setRawTaskData([updated])}
+          onPinsChange={(pins) =>
+            setRawTaskData((prev) => {
+              const current = prev[0]
+              if (!current) return prev
+              return [{ ...current, pins }]
+            })
+          }
         />
       )}
 
@@ -415,8 +482,7 @@ export default function TodoGroup() {
           try {
             await updateTask(taskId, fields)
             if (groupId) {
-              const updated = await fetchGroupTasks(parseInt(groupId, 10))
-              if (updated) setRawTaskData([updated])
+              await refreshTasksMeta(parseInt(groupId, 10))
             }
           } catch (err) {
             alert((err as Error).message)

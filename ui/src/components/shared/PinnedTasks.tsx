@@ -52,7 +52,7 @@ import {
   addTaskToPinGroup,
   createPinGroup,
   deletePinGroup,
-  fetchGroupTasks,
+  fetchGroupPins,
   removeTaskFromPinGroup,
   renamePinGroup,
   reorderPinGroups,
@@ -81,13 +81,13 @@ type PinGroup = {
 interface Props {
   parentGroupId: number
   groupData: TaskGroup | null
-  onRefresh: (updated: TaskGroup) => void
+  onPinsChange: (pins: NonNullable<TaskGroup['pins']>) => void
 }
 
 export default function PinnedTasks({
   parentGroupId,
   groupData,
-  onRefresh,
+  onPinsChange,
 }: Props) {
   const [creatingName, setCreatingName] = useState('')
   const [addingTaskInput, setAddingTaskInput] = useState<
@@ -117,9 +117,9 @@ export default function PinnedTasks({
   }, [groupData, availableTaskIds])
 
   const refresh = useCallback(async () => {
-    const updated = await fetchGroupTasks(parentGroupId)
-    if (updated) onRefresh(updated)
-  }, [parentGroupId, onRefresh])
+    const pins = await fetchGroupPins(parentGroupId)
+    if (pins) onPinsChange(pins)
+  }, [parentGroupId, onPinsChange])
 
   const handleCreatePinGroup = useCallback(async () => {
     if (!creatingName.trim()) return
@@ -332,10 +332,10 @@ export default function PinnedTasks({
               )
               await removeTaskFromPinGroup(sourcePinGroupId, sourcePinId)
 
-              // Fetch updated data and reorder to place at correct position
-              const updated = await fetchGroupTasks(parentGroupId)
-              if (updated) {
-                const updatedPinGroup = updated.pins?.find(
+              // Fetch updated pins and reorder to place at correct position
+              const updatedPins = await fetchGroupPins(parentGroupId)
+              if (updatedPins) {
+                const updatedPinGroup = updatedPins.find(
                   (pg) => pg.id === pinGroupId,
                 )
                 if (updatedPinGroup && targetIndex >= 0) {
@@ -356,7 +356,7 @@ export default function PinnedTasks({
                     await reorderPinGroupTasks(pinGroupId, payload)
                   }
                 }
-                onRefresh(updated)
+                onPinsChange(updatedPins)
               } else {
                 await refresh()
               }
@@ -379,7 +379,7 @@ export default function PinnedTasks({
           },
         }),
       )
-    }, [item, pinGroupId, items, parentGroupId, onRefresh])
+    }, [item, pinGroupId, items, parentGroupId, onPinsChange])
 
     return (
       <div
