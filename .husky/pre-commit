@@ -1,0 +1,9 @@
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$STAGED" ] && exit 0
+
+echo "$STAGED" | xargs ./node_modules/.bin/biome check --write --no-errors-on-unmatched --files-ignore-unknown=true
+BIOME_STATUS=$?
+
+echo "$STAGED" | xargs git add
+
+exit $BIOME_STATUS

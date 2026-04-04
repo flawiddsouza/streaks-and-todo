@@ -13,7 +13,8 @@
     "gen:auth-secret": "bun run scripts/generate-auth-secret.ts",
     "docker:build": "docker build -t flawiddsouza/streaks-and-todo:latest .",
     "docker:push": "docker push flawiddsouza/streaks-and-todo:latest",
-    "docker:release": "bun run docker:build && bun run docker:push"
+    "docker:release": "bun run docker:build && bun run docker:push",
+    "prepare": "husky"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.3.3",
@@ -28,7 +29,8 @@
     "@biomejs/biome": "2.1.3",
     "bun-types": "latest",
     "concurrently": "^9.2.0",
-    "drizzle-kit": "^0.31.4"
+    "drizzle-kit": "^0.31.4",
+    "husky": "^9.1.7"
   },
   "module": "src/index.js"
 }
