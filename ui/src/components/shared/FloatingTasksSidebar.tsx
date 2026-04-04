@@ -10,7 +10,12 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { TaskGroup, TaskRecord } from '../../api'
-import { moveTaskLog, setTaskLog } from '../../api'
+import {
+  fetchGroupTaskDates,
+  mergeTaskGroupDates,
+  moveTaskLog,
+  setTaskLog,
+} from '../../api'
 import { FLOATING_TASK_DATE } from '../../config'
 import { formatTaskWithExtraInfo } from '../../helpers'
 import {
@@ -538,13 +543,36 @@ export default function FloatingTasksSidebar({
     async (logId: number) => {
       if (!groupId) return
 
+      // Optimistic: remove record from state
+      const group = taskData[0]
+      if (group) {
+        const taskIdx = group.tasks.findIndex((t) =>
+          t.records.some((r) => r.id === logId),
+        )
+        if (taskIdx >= 0) {
+          onTaskDataChange((prev) =>
+            updateTaskData(prev, 0, taskIdx, (records) =>
+              records.filter((r) => r.id !== logId),
+            ),
+          )
+        }
+      }
+
       try {
         await deleteTaskLog(logId, FLOATING_TASK_DATE, groupId, false)
       } catch (err) {
         console.error('Error deleting floating task:', err)
+        const slice = await fetchGroupTaskDates(groupId, [FLOATING_TASK_DATE])
+        if (slice) {
+          onTaskDataChange((prev) => {
+            const current = prev[0]
+            if (!current) return prev
+            return [mergeTaskGroupDates(current, slice)]
+          })
+        }
       }
     },
-    [groupId],
+    [groupId, taskData, onTaskDataChange],
   )
 
   const handleSchedule = useCallback((logId: number, taskId: number) => {
@@ -555,34 +583,53 @@ export default function FloatingTasksSidebar({
     async (selectedDate: string) => {
       if (!schedulingTask || !groupId) return
 
-      try {
-        // Move the task from floating to the selected date
-        await moveTaskLog({
-          logId: schedulingTask.logId,
-          fromDate: FLOATING_TASK_DATE,
-          toDate: selectedDate,
-          toDone: false,
-        })
+      const taskLocation = taskLookup.get(schedulingTask.taskId)
 
-        // Refresh the task data
-        const taskLocation = taskLookup.get(schedulingTask.taskId)
-        if (taskLocation) {
-          const { groupIndex, taskIndex } = taskLocation
+      if (taskLocation) {
+        const { groupIndex, taskIndex } = taskLocation
+        // Optimistic: move date immediately
+        onTaskDataChange((prev) =>
+          updateTaskData(prev, groupIndex, taskIndex, (records) =>
+            records.map((r) =>
+              r.id === schedulingTask.logId ? { ...r, date: selectedDate } : r,
+            ),
+          ),
+        )
+
+        try {
+          await moveTaskLog({
+            logId: schedulingTask.logId,
+            fromDate: FLOATING_TASK_DATE,
+            toDate: selectedDate,
+            toDone: false,
+          })
+        } catch (err) {
+          console.error('Error scheduling task:', err)
+          // Revert date back to floating
           onTaskDataChange((prev) =>
-            updateTaskData(prev, groupIndex, taskIndex, (records) => {
-              return records.map((r) =>
+            updateTaskData(prev, groupIndex, taskIndex, (records) =>
+              records.map((r) =>
                 r.id === schedulingTask.logId
-                  ? { ...r, date: selectedDate }
+                  ? { ...r, date: FLOATING_TASK_DATE }
                   : r,
-              )
-            }),
+              ),
+            ),
           )
         }
-      } catch (err) {
-        console.error('Error scheduling task:', err)
-      } finally {
-        setSchedulingTask(null)
+      } else {
+        try {
+          await moveTaskLog({
+            logId: schedulingTask.logId,
+            fromDate: FLOATING_TASK_DATE,
+            toDate: selectedDate,
+            toDone: false,
+          })
+        } catch (err) {
+          console.error('Error scheduling task:', err)
+        }
       }
+
+      setSchedulingTask(null)
     },
     [schedulingTask, groupId, taskLookup, onTaskDataChange],
   )
@@ -600,18 +647,73 @@ export default function FloatingTasksSidebar({
       position: 'before' | 'after',
     ) => {
       if (!groupId) return
-      // targetDone is always false for floating tasks
-      await reorderTaskLog(
-        groupId,
-        sourceLogId,
-        targetDate,
-        sourceDate,
-        targetLogId,
-        position,
-        false, // targetDone - floating tasks are always not done
-      )
+
+      // Compute optimistic sortOrder: float between neighbors in floatingTasks
+      let newSortOrder: number
+      if (targetLogId === -1 || floatingTasks.length === 0) {
+        newSortOrder =
+          floatingTasks.length > 0
+            ? floatingTasks[floatingTasks.length - 1].sortOrder + 1
+            : 0
+      } else {
+        const targetIdx = floatingTasks.findIndex(
+          (t) => t.logId === targetLogId,
+        )
+        if (targetIdx === -1) {
+          newSortOrder = 0
+        } else if (position === 'before') {
+          const prev = floatingTasks[targetIdx - 1]
+          newSortOrder = prev
+            ? (prev.sortOrder + floatingTasks[targetIdx].sortOrder) / 2
+            : floatingTasks[targetIdx].sortOrder - 1
+        } else {
+          const next = floatingTasks[targetIdx + 1]
+          newSortOrder = next
+            ? (floatingTasks[targetIdx].sortOrder + next.sortOrder) / 2
+            : floatingTasks[targetIdx].sortOrder + 1
+        }
+      }
+
+      // Optimistic: update moved record's sortOrder
+      const group = taskData[0]
+      if (group) {
+        const taskIdx = group.tasks.findIndex((t) =>
+          t.records.some((r) => r.id === sourceLogId),
+        )
+        if (taskIdx >= 0) {
+          onTaskDataChange((prev) =>
+            updateTaskData(prev, 0, taskIdx, (records) =>
+              records.map((r) =>
+                r.id === sourceLogId ? { ...r, sortOrder: newSortOrder } : r,
+              ),
+            ),
+          )
+        }
+      }
+
+      try {
+        await reorderTaskLog(
+          groupId,
+          sourceLogId,
+          targetDate,
+          sourceDate,
+          targetLogId,
+          position,
+          false,
+        )
+      } catch (err) {
+        console.error('Error reordering floating tasks:', err)
+        const slice = await fetchGroupTaskDates(groupId, [FLOATING_TASK_DATE])
+        if (slice) {
+          onTaskDataChange((prev) => {
+            const current = prev[0]
+            if (!current) return prev
+            return [mergeTaskGroupDates(current, slice)]
+          })
+        }
+      }
     },
-    [groupId],
+    [groupId, floatingTasks, taskData, onTaskDataChange],
   )
 
   // Update menu position

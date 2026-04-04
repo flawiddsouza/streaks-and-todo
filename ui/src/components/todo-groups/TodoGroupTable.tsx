@@ -1071,53 +1071,40 @@ export default function TodoGroupTable({
       const taskLocation = taskLookup.get(taskId)
       if (!taskLocation) return
 
+      const { groupIndex, taskIndex } = taskLocation
+      const currentTask = taskData[groupIndex].tasks[taskIndex]
+      const record = currentTask.records.find((r) => r.id === logId)
+      const newDone = !(record?.done ?? false)
+
+      // Match server: place at end of target column (maxSortOrder + 1)
+      const targetRow = dateRows.find((row) => row.date === date)
+      const targetColumn = newDone
+        ? (targetRow?.doneTasks ?? [])
+        : (targetRow?.todoTasks ?? [])
+      const newSortOrder =
+        targetColumn.length > 0
+          ? targetColumn[targetColumn.length - 1].sortOrder + 1
+          : 1
+
+      // Optimistic: flip done and place at end of target column
+      onTaskDataChange((prevData) =>
+        updateTaskData(prevData, groupIndex, taskIndex, (records) =>
+          records.map((r) =>
+            r.id === logId
+              ? { ...r, done: newDone, sortOrder: newSortOrder }
+              : r,
+          ),
+        ),
+      )
+
       try {
-        const { groupIndex, taskIndex } = taskLocation
-        const currentTask = taskData[groupIndex].tasks[taskIndex]
-        const record = currentTask.records.find((r) => r.id === logId)
-        const newDone = !(record?.done ?? false)
-        const updatedLog = await setTaskLog(
-          taskId,
-          date,
-          newDone,
-          undefined,
-          record?.id,
-        )
-
-        onTaskDataChange((prevData) =>
-          updateTaskData(prevData, groupIndex, taskIndex, (records) => {
-            const updatedRecords = [...records]
-            const recordIndex = updatedRecords.findIndex(
-              (r) => r.id === updatedLog.id,
-            )
-
-            if (recordIndex >= 0) {
-              // Update existing record
-              updatedRecords[recordIndex] = {
-                ...updatedRecords[recordIndex],
-                done: updatedLog.done,
-                extraInfo: updatedLog.extraInfo || undefined,
-                sortOrder: updatedLog.sortOrder,
-              }
-            } else {
-              // Add new record
-              updatedRecords.push({
-                id: updatedLog.id,
-                date: updatedLog.date,
-                done: updatedLog.done,
-                extraInfo: updatedLog.extraInfo || undefined,
-                sortOrder: updatedLog.sortOrder,
-              })
-            }
-
-            return updatedRecords
-          }),
-        )
+        await setTaskLog(taskId, date, newDone, undefined, record?.id)
       } catch (err) {
         console.error('Error toggling task record:', err)
+        await refreshDates([date])
       }
     },
-    [taskLookup, taskData, onTaskDataChange],
+    [taskLookup, taskData, onTaskDataChange, refreshDates, dateRows],
   )
 
   const addTaskToCell = useCallback(
@@ -1262,13 +1249,29 @@ export default function TodoGroupTable({
     async (logId: number, date: string) => {
       if (!groupId) return
 
+      // Optimistic: remove record from state
+      const group = taskData[0]
+      if (group) {
+        const taskIdx = group.tasks.findIndex((t) =>
+          t.records.some((r) => r.id === logId),
+        )
+        if (taskIdx >= 0) {
+          onTaskDataChange((prev) =>
+            updateTaskData(prev, 0, taskIdx, (records) =>
+              records.filter((r) => r.id !== logId),
+            ),
+          )
+        }
+      }
+
       try {
         await deleteTaskLog(logId, date, groupId)
       } catch (err) {
         console.error('Error deleting task:', err)
+        await refreshDates([date])
       }
     },
-    [groupId],
+    [groupId, taskData, onTaskDataChange, refreshDates],
   )
 
   const updateTaskExtraInfo = useCallback(
@@ -1412,6 +1415,59 @@ export default function TodoGroupTable({
         }
       }
 
+      // Compute optimistic sortOrder: float between neighbors in target column
+      const targetRow = dateRows.find((row) => row.date === targetDate)
+      const targetColumn = finalTargetDone
+        ? (targetRow?.doneTasks ?? [])
+        : (targetRow?.todoTasks ?? [])
+
+      let newSortOrder: number
+      if (targetLogId === -1 || targetColumn.length === 0) {
+        newSortOrder =
+          targetColumn.length > 0
+            ? targetColumn[targetColumn.length - 1].sortOrder + 1
+            : 0
+      } else {
+        const targetIdx = targetColumn.findIndex((t) => t.logId === targetLogId)
+        if (targetIdx === -1) {
+          newSortOrder = 0
+        } else if (position === 'before') {
+          const prev = targetColumn[targetIdx - 1]
+          newSortOrder = prev
+            ? (prev.sortOrder + targetColumn[targetIdx].sortOrder) / 2
+            : targetColumn[targetIdx].sortOrder - 1
+        } else {
+          const next = targetColumn[targetIdx + 1]
+          newSortOrder = next
+            ? (targetColumn[targetIdx].sortOrder + next.sortOrder) / 2
+            : targetColumn[targetIdx].sortOrder + 1
+        }
+      }
+
+      // Optimistic: update moved record's date, done, and sortOrder
+      const group = taskData[0]
+      if (group) {
+        const taskIdx = group.tasks.findIndex((t) =>
+          t.records.some((r) => r.id === sourceLogId),
+        )
+        if (taskIdx >= 0) {
+          onTaskDataChange((prev) =>
+            updateTaskData(prev, 0, taskIdx, (records) =>
+              records.map((r) =>
+                r.id === sourceLogId
+                  ? {
+                      ...r,
+                      date: targetDate,
+                      done: Boolean(finalTargetDone),
+                      sortOrder: newSortOrder,
+                    }
+                  : r,
+              ),
+            ),
+          )
+        }
+      }
+
       try {
         await reorderTaskLog(
           groupId,
@@ -1424,9 +1480,10 @@ export default function TodoGroupTable({
         )
       } catch (err) {
         console.error('Error reordering tasks:', err)
+        await refreshDates([sourceDate, targetDate])
       }
     },
-    [groupId, dateRows],
+    [groupId, dateRows, taskData, onTaskDataChange, refreshDates],
   )
 
   const handlePastePinned = useCallback(

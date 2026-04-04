@@ -2479,7 +2479,10 @@ const api = new Elysia({ prefix: '/api' })
               .from(taskLogTable)
               .innerJoin(
                 tasksTable,
-                and(eq(taskLogTable.taskId, tasksTable.id), eq(tasksTable.userId, userId)),
+                and(
+                  eq(taskLogTable.taskId, tasksTable.id),
+                  eq(tasksTable.userId, userId),
+                ),
               )
               .where(
                 and(
@@ -2519,7 +2522,9 @@ const api = new Elysia({ prefix: '/api' })
               if (orderedLogIds.length === 0) return
               await db.execute(
                 sql`UPDATE task_log SET sort_order = v.sort_order FROM (VALUES ${sql.join(
-                  orderedLogIds.map((id, i) => sql`(${id}::int, ${i + 1}::int)`),
+                  orderedLogIds.map(
+                    (id, i) => sql`(${id}::int, ${i + 1}::int)`,
+                  ),
                   sql`, `,
                 )}) AS v(id, sort_order) WHERE task_log.id = v.id AND task_log.date = ${date} AND task_log.done = ${done} AND task_log.user_id = ${userId}`,
               )
@@ -2593,17 +2598,9 @@ const api = new Elysia({ prefix: '/api' })
               // mirror streak
               if (task.streakId != null) {
                 if (toDone === true) {
-                  await ensureStreakDoneForDate(
-                    task.streakId,
-                    toDate,
-                    userId,
-                  )
+                  await ensureStreakDoneForDate(task.streakId, toDate, userId)
                 } else {
-                  await ensureStreakUndoneForDate(
-                    task.streakId,
-                    toDate,
-                    userId,
-                  )
+                  await ensureStreakUndoneForDate(task.streakId, toDate, userId)
                 }
               }
             } else {
@@ -2634,11 +2631,7 @@ const api = new Elysia({ prefix: '/api' })
               // mirror streak
               if (task.streakId != null) {
                 if (toDone === true) {
-                  await ensureStreakDoneForDate(
-                    task.streakId,
-                    toDate,
-                    userId,
-                  )
+                  await ensureStreakDoneForDate(task.streakId, toDate, userId)
                 }
                 if (srcDone === true) {
                   await ensureStreakUndoneForDate(
