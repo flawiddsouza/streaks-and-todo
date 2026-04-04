@@ -97,11 +97,18 @@ export default function ManageTasksModal({
       const next: TaskDrafts = {}
       for (const t of group.tasks) {
         const existing = prev[t.id]
+        // defaultExtraInfo and streakId are disabled for family tasks — the user
+        // can't edit them, so existing draft = stale server snapshot. Always refresh.
         next[t.id] = {
           task: existing?.task ?? t.task,
           defaultExtraInfo:
-            existing?.defaultExtraInfo ?? (t.defaultExtraInfo || ''),
-          streakId: existing?.streakId ?? t.streakId ?? null,
+            t.familyId != null
+              ? t.defaultExtraInfo || ''
+              : (existing?.defaultExtraInfo ?? (t.defaultExtraInfo || '')),
+          streakId:
+            t.familyId != null
+              ? (t.streakId ?? null)
+              : (existing?.streakId ?? t.streakId ?? null),
         }
       }
       return next
