@@ -22,6 +22,12 @@ export const auth = betterAuth({
       passkey: passkeysTable,
     },
   }),
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 60,
+    },
+  },
   trustedOrigins: [config.frontendUrl],
   emailAndPassword: {
     enabled: true,
