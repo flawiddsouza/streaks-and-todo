@@ -3,7 +3,7 @@ import { config } from './config'
 export type AppEvent =
   | { type: 'connected'; ts: number }
   | { type: 'ping'; ts: number }
-  | { type: 'groups.changed'; groupType?: 'streaks' | 'tasks' }
+  | { type: 'groups.changed'; groupType?: 'streaks' | 'tasks' | 'ai-tasks' }
   | { type: 'groups.reordered' }
   | { type: 'group.meta.updated'; groupId: number }
   | { type: 'group.note.updated'; groupId: number; date: string }
@@ -38,6 +38,7 @@ export type AppEvent =
   | { type: 'pins.items.reordered'; pinGroupId: number }
   | { type: 'task.updated'; taskId: number; groupId: number }
   | { type: 'task.families.changed' }
+  | { type: 'ai-tasks.changed'; workspaceId: number }
 
 type Listener = (evt: AppEvent) => void
 

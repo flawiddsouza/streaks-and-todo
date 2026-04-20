@@ -188,6 +188,36 @@ export interface TaskGroupDateSlice {
   dates: string[]
 }
 
+export interface AiWorkspace {
+  id: number
+  name: string
+  sortOrder: number
+}
+
+export interface AiProject {
+  id: number
+  name: string
+  sortOrder: number
+  group_id: number
+}
+
+export interface AiTask {
+  id: number
+  projectId: number
+  body: string
+  sortOrder: number | null
+  done: boolean
+  createdAt: string
+  doneAt: string | null
+}
+
+export interface AiChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+}
+
 const mapTaskItem = (task: ApiTask): TaskItem => ({
   id: task.id,
   task: task.task,
@@ -1256,4 +1286,200 @@ export const matchTaskFamily = async (
   if (!response.ok) return []
   const data = await response.json()
   return data.families ?? []
+}
+
+// ── AI Tasks ──────────────────────────────────────────────────────
+
+export const fetchAiWorkspaces = async (): Promise<AiWorkspace[]> => {
+  const res = await apiFetch('/ai-tasks/workspaces')
+  if (!res.ok) throw new Error('Failed to fetch workspaces')
+  const data = await res.json()
+  return data.workspaces
+}
+
+export const createAiWorkspace = async (name: string): Promise<AiWorkspace> => {
+  const res = await apiFetch('/ai-tasks/workspaces', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Failed to create workspace')
+  const data = await res.json()
+  return data.workspace
+}
+
+export const updateAiWorkspace = async (
+  id: number,
+  name: string,
+): Promise<AiWorkspace> => {
+  const res = await apiFetch(`/ai-tasks/workspaces/${id}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Failed to update workspace')
+  const data = await res.json()
+  return data.workspace
+}
+
+export const deleteAiWorkspace = async (id: number): Promise<void> => {
+  const res = await apiFetch(`/ai-tasks/workspaces/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete workspace')
+}
+
+export const reorderAiWorkspaces = async (
+  updates: { groupId: number; sortOrder: number }[],
+): Promise<void> => {
+  const res = await apiFetch('/groups/reorder', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ groups: updates }),
+  })
+  if (!res.ok) throw new Error('Failed to reorder workspaces')
+}
+
+export const fetchAiProjects = async (
+  workspaceId: number,
+): Promise<AiProject[]> => {
+  const res = await apiFetch(`/ai-tasks/${workspaceId}/projects`)
+  if (!res.ok) throw new Error('Failed to fetch projects')
+  const data = await res.json()
+  return data.projects
+}
+
+export const createAiProject = async (
+  workspaceId: number,
+  name: string,
+): Promise<AiProject> => {
+  const res = await apiFetch(`/ai-tasks/${workspaceId}/projects`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Failed to create project')
+  const data = await res.json()
+  return data.project
+}
+
+export const updateAiProject = async (
+  id: number,
+  name: string,
+): Promise<AiProject> => {
+  const res = await apiFetch(`/ai-tasks/projects/${id}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Failed to update project')
+  const data = await res.json()
+  return data.project
+}
+
+export const deleteAiProject = async (id: number): Promise<void> => {
+  const res = await apiFetch(`/ai-tasks/projects/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete project')
+}
+
+export const reorderAiProjects = async (
+  workspaceId: number,
+  updates: { groupId: number; sortOrder: number }[],
+): Promise<void> => {
+  const res = await apiFetch(`/ai-tasks/${workspaceId}/projects/reorder`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ updates }),
+  })
+  if (!res.ok) throw new Error('Failed to reorder projects')
+}
+
+export const fetchAiTasks = async (workspaceId: number): Promise<AiTask[]> => {
+  const res = await apiFetch(`/ai-tasks/${workspaceId}/tasks`)
+  if (!res.ok) throw new Error('Failed to fetch tasks')
+  const data = await res.json()
+  return data.tasks
+}
+
+export const createAiTask = async (
+  projectId: number,
+  body: string,
+): Promise<AiTask> => {
+  const res = await apiFetch(`/ai-tasks/projects/${projectId}/tasks`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+  if (!res.ok) throw new Error('Failed to create task')
+  const data = await res.json()
+  return data.task
+}
+
+export const updateAiTask = async (
+  id: number,
+  updates: { body?: string; sortOrder?: number },
+): Promise<void> => {
+  const res = await apiFetch(`/ai-tasks/tasks/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  if (!res.ok) throw new Error('Failed to update task')
+}
+
+export const toggleAiTask = async (
+  id: number,
+): Promise<{ done: boolean; doneAt: string | null }> => {
+  const res = await apiFetch(`/ai-tasks/tasks/${id}/toggle`, {
+    method: 'PATCH',
+  })
+  if (!res.ok) throw new Error('Failed to toggle task')
+  return res.json()
+}
+
+export const deleteAiTask = async (id: number): Promise<void> => {
+  const res = await apiFetch(`/ai-tasks/tasks/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete task')
+}
+
+export const reorderAiTasks = async (
+  projectId: number,
+  updates: { taskId: number; sortOrder: number }[],
+): Promise<void> => {
+  const res = await apiFetch(`/ai-tasks/projects/${projectId}/tasks/reorder`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ updates }),
+  })
+  if (!res.ok) throw new Error('Failed to reorder tasks')
+}
+
+export const fetchAiChatHistory = async (
+  workspaceId: number,
+): Promise<AiChatMessage[]> => {
+  const res = await apiFetch(`/ai-tasks/${workspaceId}/chat`)
+  if (!res.ok) throw new Error('Failed to fetch chat history')
+  const data = await res.json()
+  return data.messages
+}
+
+// Returns the fetch Response directly so the caller can stream response.body
+export const sendAiChatMessage = (
+  workspaceId: number,
+  message: string,
+): Promise<Response> => {
+  return apiFetch(`/ai-tasks/${workspaceId}/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+}
+
+export const deleteAiChatFrom = async (
+  workspaceId: number,
+  messageId: number,
+): Promise<void> => {
+  const res = await apiFetch(
+    `/ai-tasks/${workspaceId}/chat/from/${messageId}`,
+    { method: 'DELETE' },
+  )
+  if (!res.ok) throw new Error('Failed to delete chat messages')
 }

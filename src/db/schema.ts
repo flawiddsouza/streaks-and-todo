@@ -14,7 +14,12 @@ import {
 } from 'drizzle-orm/pg-core'
 import { usersTable } from './auth-schema'
 
-export const groupTypeEnum = pgEnum('group_type', ['streaks', 'tasks', 'pins'])
+export const groupTypeEnum = pgEnum('group_type', [
+  'streaks',
+  'tasks',
+  'pins',
+  'ai-tasks',
+])
 
 export const streaksTable = pgTable('streaks', {
   id: integer().primaryKey().generatedAlwaysAsIdentity(),
@@ -138,6 +143,9 @@ export const tasksTable = pgTable(
     defaultExtraInfo: text('default_extra_info'),
     streakId: integer('streak_id').references(() => streaksTable.id),
     isOneOff: boolean('is_one_off').notNull().default(false),
+    sortOrder: integer('sort_order'),
+    done: boolean('done').notNull().default(false),
+    doneAt: timestamp('done_at'),
     familyId: integer('family_id').references(
       (): AnyPgColumn => taskFamiliesTable.id,
     ),
@@ -267,3 +275,20 @@ export const notificationDeliveriesTable = pgTable('notification_deliveries', {
   payload: json('payload'), // The notification payload that was sent
   sentAt: timestamp('sent_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+export const aiChatMessagesTable = pgTable(
+  'ai_chat_messages',
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    userId: text('user_id')
+      .references(() => usersTable.id)
+      .notNull(),
+    groupId: integer('group_id')
+      .references(() => groupsTable.id)
+      .notNull(),
+    role: text().notNull(), // 'user' | 'assistant'
+    content: text().notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('ai_chat_messages_group_id_idx').on(t.groupId)],
+)

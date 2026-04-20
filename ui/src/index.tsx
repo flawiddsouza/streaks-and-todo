@@ -1,6 +1,8 @@
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, redirect } from 'react-router'
 import NotFound from './components/shared/NotFound'
+import AiTaskWorkspace from './views/AiTaskWorkspace'
+import AiTaskWorkspaces from './views/AiTaskWorkspaces'
 import Home from './views/Home'
 import SignIn from './views/SignIn'
 import SignUp from './views/SignUp'
@@ -80,6 +82,18 @@ const router = createBrowserRouter([
   {
     path: '/todo/:groupId',
     element: <TodoGroup />,
+    loader: requireAuth,
+    HydrateFallback: () => null,
+  },
+  {
+    path: '/ai-tasks',
+    element: <AiTaskWorkspaces />,
+    loader: requireAuth,
+    HydrateFallback: () => null,
+  },
+  {
+    path: '/ai-tasks/:workspaceId',
+    element: <AiTaskWorkspace />,
     loader: requireAuth,
     HydrateFallback: () => null,
   },

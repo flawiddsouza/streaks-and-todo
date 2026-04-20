@@ -1,12 +1,21 @@
 import { cors } from '@elysiajs/cors'
 import { staticPlugin } from '@elysiajs/static'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm'
 import { type Context, Elysia, sse } from 'elysia'
+import {
+  compareSections,
+  findLatestComparisonSource,
+  formatComparisonReport,
+  getComparisonExtractionSystemPrompt,
+  getComparisonValidationSystemPrompt,
+  parseComparisonSectionsToolArgs,
+} from './aiTasksComparison'
 import { auth } from './auth'
 import { config } from './config'
 import { db } from './db'
 import { usersTable } from './db/auth-schema'
 import {
+  aiChatMessagesTable,
   groupNotesTable,
   groupPinsTable,
   groupsTable,
@@ -3694,6 +3703,1241 @@ const api = new Elysia({ prefix: '/api' })
               return { task: updated }
             } catch (err) {
               console.error('Error removing task from family:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+
+        // ── AI Tasks ──────────────────────────────────────────────────────
+        .get('/ai-tasks/workspaces', async ({ status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const workspaces = await db
+              .select()
+              .from(groupsTable)
+              .where(
+                and(
+                  eq(groupsTable.userId, userId),
+                  eq(groupsTable.type, 'ai-tasks'),
+                  isNull(groupsTable.group_id),
+                ),
+              )
+              .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
+            return { workspaces }
+          } catch (err) {
+            console.error('Error fetching AI task workspaces:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .post('/ai-tasks/workspaces', async ({ body, status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const { name } = body as { name: string }
+            if (!name?.trim())
+              return status(400, { message: 'Name is required' })
+            const existing = await db
+              .select()
+              .from(groupsTable)
+              .where(
+                and(
+                  eq(groupsTable.userId, userId),
+                  eq(groupsTable.type, 'ai-tasks'),
+                  isNull(groupsTable.group_id),
+                  eq(groupsTable.name, name.trim()),
+                ),
+              )
+              .limit(1)
+            if (existing.length > 0)
+              return status(409, {
+                message: 'Workspace with this name already exists',
+              })
+            const maxOrder = await db
+              .select({
+                maxSort: sql<number>`coalesce(max(${groupsTable.sortOrder}), 0)`,
+              })
+              .from(groupsTable)
+              .where(
+                and(
+                  eq(groupsTable.userId, userId),
+                  eq(groupsTable.type, 'ai-tasks'),
+                  isNull(groupsTable.group_id),
+                ),
+              )
+            const [workspace] = await db
+              .insert(groupsTable)
+              .values({
+                userId,
+                name: name.trim(),
+                type: 'ai-tasks',
+                sortOrder: (maxOrder[0]?.maxSort ?? 0) + 1,
+              })
+              .returning()
+            broadcast(userId, { type: 'groups.changed', groupType: 'ai-tasks' })
+            return { workspace }
+          } catch (err) {
+            console.error('Error creating AI task workspace:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .put(
+          '/ai-tasks/workspaces/:id',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid ID' })
+              const { name } = body as { name: string }
+              if (!name?.trim())
+                return status(400, { message: 'Name is required' })
+              const [updated] = await db
+                .update(groupsTable)
+                .set({ name: name.trim() })
+                .where(
+                  and(
+                    eq(groupsTable.id, idNum),
+                    eq(groupsTable.userId, userId),
+                    eq(groupsTable.type, 'ai-tasks'),
+                  ),
+                )
+                .returning()
+              if (!updated)
+                return status(404, { message: 'Workspace not found' })
+              broadcast(userId, { type: 'group.meta.updated', groupId: idNum })
+              return { workspace: updated }
+            } catch (err) {
+              console.error('Error renaming AI task workspace:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .delete(
+          '/ai-tasks/workspaces/:id',
+          async ({ params: { id }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid ID' })
+              const projects = await db
+                .select({ id: groupsTable.id })
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.userId, userId),
+                    eq(groupsTable.type, 'ai-tasks'),
+                    eq(groupsTable.group_id, idNum),
+                  ),
+                )
+              const projectIds = projects.map((p) => p.id)
+              // Delete in FK-safe order
+              await db
+                .delete(aiChatMessagesTable)
+                .where(eq(aiChatMessagesTable.groupId, idNum))
+              if (projectIds.length > 0)
+                await db
+                  .delete(tasksTable)
+                  .where(inArray(tasksTable.groupId, projectIds))
+              if (projectIds.length > 0)
+                await db
+                  .delete(groupsTable)
+                  .where(inArray(groupsTable.id, projectIds))
+              const [deleted] = await db
+                .delete(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.id, idNum),
+                    eq(groupsTable.userId, userId),
+                  ),
+                )
+                .returning()
+              if (!deleted)
+                return status(404, { message: 'Workspace not found' })
+              broadcast(userId, {
+                type: 'groups.changed',
+                groupType: 'ai-tasks',
+              })
+              return { message: 'Workspace deleted' }
+            } catch (err) {
+              console.error('Error deleting AI task workspace:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get(
+          '/ai-tasks/:workspaceId/projects',
+          async ({ params: { workspaceId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              if (Number.isNaN(wsId))
+                return status(400, { message: 'Invalid workspace ID' })
+              const projects = await db
+                .select()
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.userId, userId),
+                    eq(groupsTable.type, 'ai-tasks'),
+                    eq(groupsTable.group_id, wsId),
+                  ),
+                )
+                .orderBy(groupsTable.sortOrder, groupsTable.createdAt)
+              return { projects }
+            } catch (err) {
+              console.error('Error fetching projects:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .post(
+          '/ai-tasks/:workspaceId/projects',
+          async ({ params: { workspaceId }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              if (Number.isNaN(wsId))
+                return status(400, { message: 'Invalid workspace ID' })
+              const { name } = body as { name: string }
+              if (!name?.trim())
+                return status(400, { message: 'Name is required' })
+              const maxOrder = await db
+                .select({
+                  maxSort: sql<number>`coalesce(max(${groupsTable.sortOrder}), 0)`,
+                })
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.userId, userId),
+                    eq(groupsTable.type, 'ai-tasks'),
+                    eq(groupsTable.group_id, wsId),
+                  ),
+                )
+              const [project] = await db
+                .insert(groupsTable)
+                .values({
+                  userId,
+                  name: name.trim(),
+                  type: 'ai-tasks',
+                  group_id: wsId,
+                  sortOrder: (maxOrder[0]?.maxSort ?? 0) + 1,
+                })
+                .returning()
+              broadcast(userId, { type: 'ai-tasks.changed', workspaceId: wsId })
+              return { project }
+            } catch (err) {
+              console.error('Error creating project:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .put(
+          '/ai-tasks/projects/:id',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid ID' })
+              const { name } = body as { name: string }
+              if (!name?.trim())
+                return status(400, { message: 'Name is required' })
+              const [updated] = await db
+                .update(groupsTable)
+                .set({ name: name.trim() })
+                .where(
+                  and(
+                    eq(groupsTable.id, idNum),
+                    eq(groupsTable.userId, userId),
+                  ),
+                )
+                .returning()
+              if (!updated) return status(404, { message: 'Project not found' })
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: updated.group_id as number,
+              })
+              return { project: updated }
+            } catch (err) {
+              console.error('Error renaming project:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .delete(
+          '/ai-tasks/projects/:id',
+          async ({ params: { id }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid ID' })
+              // Delete tasks directly (no task_log rows for AI tasks)
+              await db
+                .delete(tasksTable)
+                .where(
+                  and(
+                    eq(tasksTable.groupId, idNum),
+                    eq(tasksTable.userId, userId),
+                  ),
+                )
+              const [deleted] = await db
+                .delete(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.id, idNum),
+                    eq(groupsTable.userId, userId),
+                  ),
+                )
+                .returning()
+              if (!deleted) return status(404, { message: 'Project not found' })
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: deleted.group_id as number,
+              })
+              return { message: 'Project deleted' }
+            } catch (err) {
+              console.error('Error deleting project:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .patch(
+          '/ai-tasks/:workspaceId/projects/reorder',
+          async ({ params: { workspaceId }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              if (Number.isNaN(wsId))
+                return status(400, { message: 'Invalid workspace ID' })
+              const { updates } = body as {
+                updates: { groupId: number; sortOrder: number }[]
+              }
+              await Promise.all(
+                updates.map(({ groupId, sortOrder }) =>
+                  db
+                    .update(groupsTable)
+                    .set({ sortOrder })
+                    .where(
+                      and(
+                        eq(groupsTable.id, groupId),
+                        eq(groupsTable.userId, userId),
+                      ),
+                    ),
+                ),
+              )
+              broadcast(userId, { type: 'ai-tasks.changed', workspaceId: wsId })
+              return { message: 'Reordered' }
+            } catch (err) {
+              console.error('Error reordering projects:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get(
+          '/ai-tasks/:workspaceId/tasks',
+          async ({ params: { workspaceId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              if (Number.isNaN(wsId))
+                return status(400, { message: 'Invalid workspace ID' })
+              // Get all projects in workspace
+              const projects = await db
+                .select({ id: groupsTable.id })
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.userId, userId),
+                    eq(groupsTable.type, 'ai-tasks'),
+                    eq(groupsTable.group_id, wsId),
+                  ),
+                )
+              const projectIds = projects.map((p) => p.id)
+              if (projectIds.length === 0) return { tasks: [] }
+              const rows = await db
+                .select({
+                  id: tasksTable.id,
+                  projectId: tasksTable.groupId,
+                  body: tasksTable.task,
+                  sortOrder: tasksTable.sortOrder,
+                  done: tasksTable.done,
+                  doneAt: tasksTable.doneAt,
+                  createdAt: tasksTable.createdAt,
+                })
+                .from(tasksTable)
+                .where(inArray(tasksTable.groupId, projectIds))
+                .orderBy(tasksTable.sortOrder, tasksTable.createdAt)
+              return { tasks: rows }
+            } catch (err) {
+              console.error('Error fetching tasks:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .post(
+          '/ai-tasks/projects/:projectId/tasks',
+          async ({ params: { projectId }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const projId = parseInt(projectId)
+              if (Number.isNaN(projId))
+                return status(400, { message: 'Invalid project ID' })
+              const { body: taskBody } = body as { body: string }
+              if (!taskBody?.trim())
+                return status(400, { message: 'Body is required' })
+              const project = await db
+                .select({ id: groupsTable.id, group_id: groupsTable.group_id })
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.id, projId),
+                    eq(groupsTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+              if (project.length === 0)
+                return status(404, { message: 'Project not found' })
+              const maxOrder = await db
+                .select({
+                  maxSort: sql<number>`coalesce(max(${tasksTable.sortOrder}), 0)`,
+                })
+                .from(tasksTable)
+                .where(eq(tasksTable.groupId, projId))
+              const [task] = await db
+                .insert(tasksTable)
+                .values({
+                  userId,
+                  groupId: projId,
+                  task: taskBody.trim(),
+                  isOneOff: false,
+                  sortOrder: (maxOrder[0]?.maxSort ?? 0) + 1,
+                  done: false,
+                })
+                .returning()
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: project[0].group_id as number,
+              })
+              return {
+                task: {
+                  id: task.id,
+                  projectId: task.groupId,
+                  body: task.task,
+                  sortOrder: task.sortOrder,
+                  done: false,
+                  doneAt: null,
+                  createdAt: task.createdAt,
+                },
+              }
+            } catch (err) {
+              console.error('Error creating task:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .patch(
+          '/ai-tasks/tasks/:id',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid task ID' })
+              const { body: taskBody, sortOrder } = body as {
+                body?: string
+                sortOrder?: number
+              }
+              const updateData: { task?: string; sortOrder?: number } = {}
+              if (taskBody !== undefined) {
+                if (!taskBody.trim())
+                  return status(400, { message: 'Body cannot be empty' })
+                updateData.task = taskBody.trim()
+              }
+              if (sortOrder !== undefined) updateData.sortOrder = sortOrder
+              if (Object.keys(updateData).length === 0)
+                return status(400, { message: 'No fields to update' })
+              const [updated] = await db
+                .update(tasksTable)
+                .set(updateData)
+                .where(
+                  and(eq(tasksTable.id, idNum), eq(tasksTable.userId, userId)),
+                )
+                .returning()
+              if (!updated) return status(404, { message: 'Task not found' })
+              const project = await db
+                .select({ group_id: groupsTable.group_id })
+                .from(groupsTable)
+                .where(eq(groupsTable.id, updated.groupId))
+                .limit(1)
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: project[0]?.group_id as number,
+              })
+              return { task: updated }
+            } catch (err) {
+              console.error('Error updating task:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .patch(
+          '/ai-tasks/tasks/:id/toggle',
+          async ({ params: { id }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid task ID' })
+              const [existing] = await db
+                .select({ done: tasksTable.done })
+                .from(tasksTable)
+                .where(
+                  and(eq(tasksTable.id, idNum), eq(tasksTable.userId, userId)),
+                )
+                .limit(1)
+              if (!existing) return status(404, { message: 'Task not found' })
+              const newDone = !existing.done
+              const [updated] = await db
+                .update(tasksTable)
+                .set({ done: newDone, doneAt: newDone ? new Date() : null })
+                .where(
+                  and(eq(tasksTable.id, idNum), eq(tasksTable.userId, userId)),
+                )
+                .returning()
+              const project = await db
+                .select({ group_id: groupsTable.group_id })
+                .from(groupsTable)
+                .where(eq(groupsTable.id, updated.groupId))
+                .limit(1)
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: project[0]?.group_id as number,
+              })
+              return { done: updated.done, doneAt: updated.doneAt }
+            } catch (err) {
+              console.error('Error toggling task:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .delete(
+          '/ai-tasks/tasks/:id',
+          async ({ params: { id }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const idNum = parseInt(id)
+              if (Number.isNaN(idNum))
+                return status(400, { message: 'Invalid task ID' })
+              const task = await db
+                .select({ groupId: tasksTable.groupId })
+                .from(tasksTable)
+                .where(
+                  and(eq(tasksTable.id, idNum), eq(tasksTable.userId, userId)),
+                )
+                .limit(1)
+              if (task.length === 0)
+                return status(404, { message: 'Task not found' })
+              await db.delete(tasksTable).where(eq(tasksTable.id, idNum))
+              const project = await db
+                .select({ group_id: groupsTable.group_id })
+                .from(groupsTable)
+                .where(eq(groupsTable.id, task[0].groupId))
+                .limit(1)
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: project[0]?.group_id as number,
+              })
+              return { message: 'Task deleted' }
+            } catch (err) {
+              console.error('Error deleting task:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .patch(
+          '/ai-tasks/projects/:projectId/tasks/reorder',
+          async ({ params: { projectId }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const projId = parseInt(projectId)
+              if (Number.isNaN(projId))
+                return status(400, { message: 'Invalid project ID' })
+              const { updates } = body as {
+                updates: { taskId: number; sortOrder: number }[]
+              }
+              await Promise.all(
+                updates.map(({ taskId, sortOrder }) =>
+                  db
+                    .update(tasksTable)
+                    .set({ sortOrder })
+                    .where(
+                      and(
+                        eq(tasksTable.id, taskId),
+                        eq(tasksTable.userId, userId),
+                      ),
+                    ),
+                ),
+              )
+              const project = await db
+                .select({ group_id: groupsTable.group_id })
+                .from(groupsTable)
+                .where(eq(groupsTable.id, projId))
+                .limit(1)
+              broadcast(userId, {
+                type: 'ai-tasks.changed',
+                workspaceId: project[0]?.group_id as number,
+              })
+              return { message: 'Reordered' }
+            } catch (err) {
+              console.error('Error reordering tasks:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .get(
+          '/ai-tasks/:workspaceId/chat',
+          async ({ params: { workspaceId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              if (Number.isNaN(wsId))
+                return status(400, { message: 'Invalid workspace ID' })
+              const messages = await db
+                .select()
+                .from(aiChatMessagesTable)
+                .where(
+                  and(
+                    eq(aiChatMessagesTable.groupId, wsId),
+                    eq(aiChatMessagesTable.userId, userId),
+                  ),
+                )
+                .orderBy(aiChatMessagesTable.createdAt)
+              return { messages }
+            } catch (err) {
+              console.error('Error fetching chat history:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .delete(
+          '/ai-tasks/:workspaceId/chat/from/:messageId',
+          async ({ params: { workspaceId, messageId }, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              const msgId = parseInt(messageId)
+              if (Number.isNaN(wsId) || Number.isNaN(msgId))
+                return status(400, { message: 'Invalid parameters' })
+              // Verify the message belongs to this user's workspace
+              const msg = await db
+                .select()
+                .from(aiChatMessagesTable)
+                .where(
+                  and(
+                    eq(aiChatMessagesTable.id, msgId),
+                    eq(aiChatMessagesTable.userId, userId),
+                    eq(aiChatMessagesTable.groupId, wsId),
+                  ),
+                )
+                .limit(1)
+              if (msg.length === 0)
+                return status(404, { message: 'Message not found' })
+              // Delete this message and all subsequent ones in the same workspace
+              await db
+                .delete(aiChatMessagesTable)
+                .where(
+                  and(
+                    eq(aiChatMessagesTable.userId, userId),
+                    eq(aiChatMessagesTable.groupId, wsId),
+                    gte(aiChatMessagesTable.id, msgId),
+                  ),
+                )
+              return { ok: true }
+            } catch (err) {
+              console.error('Error deleting chat messages:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .post(
+          '/ai-tasks/:workspaceId/chat',
+          async ({ params: { workspaceId }, body, status, store, set }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const wsId = parseInt(workspaceId)
+              if (Number.isNaN(wsId))
+                return status(400, { message: 'Invalid workspace ID' })
+              const { message } = body as { message: string }
+              if (!message?.trim())
+                return status(400, { message: 'Message is required' })
+
+              // Verify workspace belongs to user
+              const workspace = await db
+                .select()
+                .from(groupsTable)
+                .where(
+                  and(eq(groupsTable.id, wsId), eq(groupsTable.userId, userId)),
+                )
+                .limit(1)
+              if (workspace.length === 0)
+                return status(404, { message: 'Workspace not found' })
+
+              const projects = await db
+                .select()
+                .from(groupsTable)
+                .where(
+                  and(
+                    eq(groupsTable.userId, userId),
+                    eq(groupsTable.type, 'ai-tasks'),
+                    eq(groupsTable.group_id, wsId),
+                  ),
+                )
+                .orderBy(groupsTable.sortOrder)
+              const projectIds = projects.map((p) => p.id)
+              const taskRows =
+                projectIds.length > 0
+                  ? await db
+                      .select({
+                        id: tasksTable.id,
+                        projectId: tasksTable.groupId,
+                        body: tasksTable.task,
+                        createdAt: tasksTable.createdAt,
+                        done: tasksTable.done,
+                        doneAt: tasksTable.doneAt,
+                      })
+                      .from(tasksTable)
+                      .where(inArray(tasksTable.groupId, projectIds))
+                      .orderBy(tasksTable.sortOrder)
+                  : []
+
+              const taskContext = projects
+                .map((p) => {
+                  const tasks = taskRows.filter((t) => t.projectId === p.id)
+                  const lines = tasks.map((t) => {
+                    const addedDate = new Date(t.createdAt).toLocaleDateString(
+                      'en-US',
+                      { month: 'short', day: 'numeric' },
+                    )
+                    const doneDate =
+                      t.done && t.doneAt
+                        ? new Date(t.doneAt).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                          })
+                        : null
+                    const ts = doneDate
+                      ? `added ${addedDate}, done ${doneDate}`
+                      : `added ${addedDate}`
+                    return `  - [${t.done ? 'done' : 'todo'}] ${t.body} (id:${t.id}, ${ts})`
+                  })
+                  return `Project: ${p.name} (id:${p.id})\n${lines.join('\n') || '  (no tasks)'}`
+                })
+                .join('\n\n')
+
+              const history = await db
+                .select()
+                .from(aiChatMessagesTable)
+                .where(
+                  and(
+                    eq(aiChatMessagesTable.groupId, wsId),
+                    eq(aiChatMessagesTable.userId, userId),
+                  ),
+                )
+                .orderBy(aiChatMessagesTable.createdAt)
+
+              const [savedUserMsg] = await db
+                .insert(aiChatMessagesTable)
+                .values({
+                  userId,
+                  groupId: wsId,
+                  role: 'user',
+                  content: message.trim(),
+                })
+                .returning({ id: aiChatMessagesTable.id })
+
+              const openRouterModel =
+                process.env.OPENROUTER_MODEL ||
+                'google/gemini-3.1-flash-lite-preview'
+              const runComparisonTool = {
+                type: 'function' as const,
+                function: {
+                  name: 'run_comparison',
+                  description:
+                    'Compare the task list the user pasted in a previous message against the current workspace tasks. Only call this when the user explicitly asks something like "did the import work?", "check what I pasted", "compare", or "verify the import". Never call this for task operations like marking done, undoing, adding, or deleting.',
+                  parameters: {
+                    type: 'object' as const,
+                    properties: {},
+                    required: [],
+                    additionalProperties: false,
+                  },
+                },
+              }
+
+              const systemPrompt = `You are a task management assistant. The user's current workspace tasks are:\n\n${taskContext || '(no projects yet)'}\n\nOnly emit action blocks when the user explicitly asks for a task operation, or when they paste a list to import. Never infer actions from greetings, questions, or ambiguous messages. If a referenced task name exists in multiple projects, ask which project they mean before acting.\n\nWhen the user pastes structured or semi-structured text, infer project contexts and task lines using generic heuristics. Critical rule: do not transform user task text.\n\nText-preservation requirements:\n- For every addTask action, copy body verbatim from the original user line after trimming only outer whitespace\n- Do not rewrite, summarize, normalize, paraphrase, or remove tokens, prefixes, suffixes, IDs, punctuation, case, spelling, separators, or inline delimiters\n- Inline separators inside a task line (such as >, :, -, /) are task text, not structure. If a line reads "A > B", the full body is "A > B", not just "B"\n- Nested or indented follow-up lines belong to the previous task; append them using literal newlines (\\n) while preserving each appended line verbatim\n- If structure is ambiguous, ask a brief clarification instead of guessing\n\nAvailable action blocks (emit at the start of your response, before any text):\n<action>{"type":"markDone","taskId":5}</action>\n<action>{"type":"markTodo","taskId":5}</action>\n<action>{"type":"deleteTask","taskId":5}</action>\n<action>{"type":"addTask","projectName":"Project Name","body":"task description"}</action>\n\nFor addTask always use projectName, not projectId. The server will create missing projects and ignore exact duplicates within a project.\n\nYou may include multiple action blocks. After all action blocks, write your conversational response in plain text. Do not place action blocks in the middle or end of the response.\n\nWhen confirming an action, state the full task name and the project it belongs to.`
+
+              const messages = [
+                { role: 'system', content: systemPrompt },
+                ...history.map((h) => ({ role: h.role, content: h.content })),
+                { role: 'user', content: message.trim() },
+              ]
+
+              const openRouterRes = await fetch(
+                'https://openrouter.ai/api/v1/chat/completions',
+                {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    model: openRouterModel,
+                    messages,
+                    stream: true,
+                    tools: [runComparisonTool],
+                    tool_choice: 'auto',
+                  }),
+                },
+              )
+
+              if (!openRouterRes.ok) {
+                console.error('OpenRouter error:', await openRouterRes.text())
+                return status(502, { message: 'AI service error' })
+              }
+
+              set.headers['x-accel-buffering'] = 'no'
+              set.headers['cache-control'] = 'no-cache'
+              set.headers['content-type'] = 'text/plain; charset=utf-8'
+
+              const stream = new ReadableStream({
+                async start(controller) {
+                  // send real user msg ID first so client can replace its optimistic entry
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      `__USERMSGID__:${savedUserMsg.id}\n`,
+                    ),
+                  )
+
+                  const reader = openRouterRes.body?.getReader()
+                  if (!reader) return
+                  const decoder = new TextDecoder()
+                  let fullText = ''
+
+                  // local cache so addTask can find projects created earlier in the same stream
+                  const knownProjects = [...projects]
+                  let actionsChanged = false
+
+                  async function executeAction(actionJson: string) {
+                    try {
+                      const action = JSON.parse(actionJson)
+                      if (action.type === 'markDone' && action.taskId) {
+                        await db
+                          .update(tasksTable)
+                          .set({ done: true, doneAt: new Date() })
+                          .where(
+                            and(
+                              eq(tasksTable.id, action.taskId),
+                              eq(tasksTable.userId, userId),
+                            ),
+                          )
+                        actionsChanged = true
+                      } else if (action.type === 'markTodo' && action.taskId) {
+                        await db
+                          .update(tasksTable)
+                          .set({ done: false, doneAt: null })
+                          .where(
+                            and(
+                              eq(tasksTable.id, action.taskId),
+                              eq(tasksTable.userId, userId),
+                            ),
+                          )
+                        actionsChanged = true
+                      } else if (
+                        action.type === 'deleteTask' &&
+                        action.taskId
+                      ) {
+                        await db
+                          .delete(tasksTable)
+                          .where(
+                            and(
+                              eq(tasksTable.id, action.taskId),
+                              eq(tasksTable.userId, userId),
+                            ),
+                          )
+                        actionsChanged = true
+                      } else if (
+                        action.type === 'addTask' &&
+                        action.projectName &&
+                        action.body
+                      ) {
+                        const match = knownProjects.find(
+                          (p) =>
+                            p.name.toLowerCase() ===
+                            String(action.projectName).toLowerCase(),
+                        )
+                        let targetProjectId: number
+                        if (match) {
+                          targetProjectId = match.id
+                        } else {
+                          const maxProjOrder = await db
+                            .select({
+                              maxSort: sql<number>`coalesce(max(${groupsTable.sortOrder}), 0)`,
+                            })
+                            .from(groupsTable)
+                            .where(
+                              and(
+                                eq(groupsTable.userId, userId),
+                                eq(groupsTable.type, 'ai-tasks'),
+                                eq(groupsTable.group_id, wsId),
+                              ),
+                            )
+                          const [newProject] = await db
+                            .insert(groupsTable)
+                            .values({
+                              userId,
+                              name: String(action.projectName).trim(),
+                              type: 'ai-tasks',
+                              group_id: wsId,
+                              sortOrder: (maxProjOrder[0]?.maxSort ?? 0) + 1,
+                            })
+                            .returning()
+                          knownProjects.push(newProject)
+                          targetProjectId = newProject.id
+                        }
+                        // skip if identical task already exists in this project
+                        const existingTasks = await db
+                          .select()
+                          .from(tasksTable)
+                          .where(
+                            and(
+                              eq(tasksTable.groupId, targetProjectId),
+                              eq(tasksTable.userId, userId),
+                            ),
+                          )
+                        const duplicate = existingTasks.find(
+                          (t) => t.task.trim() === String(action.body).trim(),
+                        )
+                        if (!duplicate) {
+                          const maxOrder = await db
+                            .select({
+                              maxSort: sql<number>`coalesce(max(${tasksTable.sortOrder}), 0)`,
+                            })
+                            .from(tasksTable)
+                            .where(eq(tasksTable.groupId, targetProjectId))
+                          await db.insert(tasksTable).values({
+                            userId,
+                            groupId: targetProjectId,
+                            task: String(action.body).trim(),
+                            isOneOff: false,
+                            sortOrder: (maxOrder[0]?.maxSort ?? 0) + 1,
+                            done: false,
+                          })
+                          actionsChanged = true
+                        }
+                      }
+                    } catch (e) {
+                      console.error('Action execution error:', e)
+                    }
+                  }
+
+                  try {
+                    let processedUpTo = 0
+                    const calledTools = new Set<string>()
+                    while (true) {
+                      const { done, value } = await reader.read()
+                      if (done) break
+                      const chunk = decoder.decode(value, { stream: true })
+                      // OpenRouter streams SSE lines: "data: {...}\n\n"
+                      const lines = chunk.split('\n')
+                      for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue
+                        const data = line.slice(6)
+                        if (data === '[DONE]') continue
+                        try {
+                          const parsed = JSON.parse(data)
+                          const delta = parsed.choices?.[0]?.delta
+                          if (delta?.tool_calls) {
+                            for (const tc of delta.tool_calls) {
+                              if (tc.function?.name)
+                                calledTools.add(tc.function.name)
+                            }
+                            continue
+                          }
+                          const content = delta?.content ?? ''
+                          if (!content) continue
+                          fullText += content
+
+                          // Execute any complete action blocks found since last processed position
+                          let scanning = fullText.slice(processedUpTo)
+                          while (true) {
+                            const start = scanning.indexOf('<action>')
+                            const end = scanning.indexOf('</action>', start + 8)
+                            if (start !== -1 && end !== -1 && end > start) {
+                              const actionJson = scanning.slice(start + 8, end)
+                              await executeAction(actionJson)
+                              processedUpTo =
+                                fullText.length - scanning.length + end + 9
+                              scanning = scanning.slice(end + 9)
+                            } else {
+                              break
+                            }
+                          }
+
+                          // Stream everything raw - client's clean() strips action blocks for display
+                          controller.enqueue(new TextEncoder().encode(content))
+                        } catch (_) {
+                          /* skip malformed chunks */
+                        }
+                      }
+                    }
+
+                    const comparisonSource = findLatestComparisonSource(
+                      history.map((h) => ({
+                        role: h.role,
+                        content: h.content,
+                      })),
+                    )
+                    if (
+                      calledTools.has('run_comparison') &&
+                      !comparisonSource
+                    ) {
+                      const msg =
+                        'I could not find any pasted text in this conversation to compare against.'
+                      const [savedAssistantMsg] = await db
+                        .insert(aiChatMessagesTable)
+                        .values({
+                          userId,
+                          groupId: wsId,
+                          role: 'assistant',
+                          content: msg,
+                        })
+                        .returning({ id: aiChatMessagesTable.id })
+                      controller.enqueue(new TextEncoder().encode(msg))
+                      controller.enqueue(
+                        new TextEncoder().encode(
+                          `\n__ASSISTANTID__:${savedAssistantMsg.id}`,
+                        ),
+                      )
+                    } else if (
+                      calledTools.has('run_comparison') &&
+                      comparisonSource
+                    ) {
+                      const extractSectionsTool = {
+                        type: 'function' as const,
+                        function: {
+                          name: 'extract_reference_sections',
+                          description:
+                            'Extract project sections and their task text exactly from arbitrary pasted text for deterministic comparison.',
+                          parameters: {
+                            type: 'object',
+                            properties: {
+                              sections: {
+                                type: 'array',
+                                items: {
+                                  type: 'object',
+                                  properties: {
+                                    projectName: { type: 'string' },
+                                    tasks: {
+                                      type: 'array',
+                                      items: { type: 'string' },
+                                    },
+                                  },
+                                  required: ['projectName', 'tasks'],
+                                  additionalProperties: false,
+                                },
+                              },
+                            },
+                            required: ['sections'],
+                            additionalProperties: false,
+                          },
+                        },
+                      }
+                      const extractionRes = await fetch(
+                        'https://openrouter.ai/api/v1/chat/completions',
+                        {
+                          method: 'POST',
+                          headers: {
+                            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({
+                            model: openRouterModel,
+                            messages: [
+                              {
+                                role: 'system',
+                                content: getComparisonExtractionSystemPrompt(),
+                              },
+                              { role: 'user', content: comparisonSource },
+                            ],
+                            tools: [extractSectionsTool],
+                            tool_choice: {
+                              type: 'function',
+                              function: { name: 'extract_reference_sections' },
+                            },
+                            stream: false,
+                          }),
+                        },
+                      )
+                      type OpenRouterResp = {
+                        choices?: {
+                          message?: {
+                            tool_calls?: {
+                              function?: { name?: string; arguments?: string }
+                            }[]
+                          }
+                        }[]
+                      }
+                      let expectedSections = null
+                      if (extractionRes.ok) {
+                        const extractionData =
+                          (await extractionRes.json()) as OpenRouterResp
+                        const toolCall =
+                          extractionData.choices?.[0]?.message?.tool_calls?.find(
+                            (candidate) =>
+                              candidate?.function?.name ===
+                              'extract_reference_sections',
+                          )
+                        const extractedSections =
+                          parseComparisonSectionsToolArgs(
+                            toolCall?.function?.arguments ?? '',
+                          )
+                        expectedSections = extractedSections
+                        if (extractedSections) {
+                          const validationRes = await fetch(
+                            'https://openrouter.ai/api/v1/chat/completions',
+                            {
+                              method: 'POST',
+                              headers: {
+                                Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                model: openRouterModel,
+                                messages: [
+                                  {
+                                    role: 'system',
+                                    content:
+                                      getComparisonValidationSystemPrompt(),
+                                  },
+                                  {
+                                    role: 'user',
+                                    content: [
+                                      'Original pasted text:',
+                                      comparisonSource,
+                                      '',
+                                      'Current extracted JSON:',
+                                      JSON.stringify(
+                                        { sections: extractedSections },
+                                        null,
+                                        2,
+                                      ),
+                                    ].join('\n'),
+                                  },
+                                ],
+                                tools: [extractSectionsTool],
+                                tool_choice: {
+                                  type: 'function',
+                                  function: {
+                                    name: 'extract_reference_sections',
+                                  },
+                                },
+                                stream: false,
+                              }),
+                            },
+                          )
+                          if (validationRes.ok) {
+                            const validationData =
+                              (await validationRes.json()) as OpenRouterResp
+                            const validationToolCall =
+                              validationData.choices?.[0]?.message?.tool_calls?.find(
+                                (candidate) =>
+                                  candidate?.function?.name ===
+                                  'extract_reference_sections',
+                              )
+                            expectedSections =
+                              parseComparisonSectionsToolArgs(
+                                validationToolCall?.function?.arguments ?? '',
+                              ) ?? extractedSections
+                          } else {
+                            console.error(
+                              'OpenRouter comparison validation error:',
+                              await validationRes.text(),
+                            )
+                          }
+                        }
+                      } else {
+                        console.error(
+                          'OpenRouter comparison extraction error:',
+                          await extractionRes.text(),
+                        )
+                      }
+                      const finalAssistantText = !expectedSections
+                        ? 'I could not compare the latest pasted text deterministically.'
+                        : formatComparisonReport(
+                            compareSections(
+                              expectedSections,
+                              projects.map((project) => ({
+                                projectName: project.name,
+                                tasks: taskRows
+                                  .filter(
+                                    (task) => task.projectId === project.id,
+                                  )
+                                  .map((task) => task.body),
+                              })),
+                            ),
+                          )
+                      const [savedAssistantMsg] = await db
+                        .insert(aiChatMessagesTable)
+                        .values({
+                          userId,
+                          groupId: wsId,
+                          role: 'assistant',
+                          content: finalAssistantText,
+                        })
+                        .returning({ id: aiChatMessagesTable.id })
+                      controller.enqueue(
+                        new TextEncoder().encode(finalAssistantText),
+                      )
+                      controller.enqueue(
+                        new TextEncoder().encode(
+                          `\n__ASSISTANTID__:${savedAssistantMsg.id}`,
+                        ),
+                      )
+                    } else {
+                      const cleanContent = fullText
+                        .replace(/<action>[\s\S]*?<\/action>/g, '')
+                        .trim()
+                      const [savedAssistantMsg] = await db
+                        .insert(aiChatMessagesTable)
+                        .values({
+                          userId,
+                          groupId: wsId,
+                          role: 'assistant',
+                          content: cleanContent,
+                        })
+                        .returning({ id: aiChatMessagesTable.id })
+                      if (actionsChanged)
+                        broadcast(userId, {
+                          type: 'ai-tasks.changed',
+                          workspaceId: wsId,
+                        })
+                      controller.enqueue(
+                        new TextEncoder().encode(
+                          `\n__ASSISTANTID__:${savedAssistantMsg.id}`,
+                        ),
+                      )
+                    }
+                  } catch (e) {
+                    console.error('Stream error:', e)
+                  } finally {
+                    controller.close()
+                  }
+                },
+              })
+
+              return stream
+            } catch (err) {
+              console.error('Error in chat:', err)
               return status(500, { message: 'Internal server error' })
             }
           },

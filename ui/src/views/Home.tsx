@@ -103,14 +103,24 @@ export default function Home() {
       </div>
 
       {session && !loading && (
-        <>
-          <div style={{ marginTop: '0.5rem' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.35rem',
+            marginTop: '0.5rem',
+          }}
+        >
+          <div>
             <Link to={`/streaks`}>Streak Groups</Link>
           </div>
           <div>
             <Link to={`/todo`}>Todo Groups</Link>
           </div>
-        </>
+          <div>
+            <Link to="/ai-tasks">AI Tasks</Link>
+          </div>
+        </div>
       )}
 
       {!session && !loading && (
