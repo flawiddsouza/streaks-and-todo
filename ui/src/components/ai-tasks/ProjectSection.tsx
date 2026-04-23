@@ -66,10 +66,12 @@ function DraggableTask({
           const sourceId = source.data.taskId as number
           const arr = [...allTasksRef.current]
           const srcIdx = arr.findIndex((t) => t.id === sourceId)
-          const tgtIdx = arr.findIndex((t) => t.id === task.id)
-          if (srcIdx === -1 || tgtIdx === -1) return
+          if (srcIdx === -1) return
           const [moved] = arr.splice(srcIdx, 1)
-          arr.splice(tgtIdx, 0, moved)
+          // Re-find after splice so the insert is always before the target
+          const newTgtIdx = arr.findIndex((t) => t.id === task.id)
+          if (newTgtIdx === -1) return
+          arr.splice(newTgtIdx, 0, moved)
           onReorderTasks(
             projectId,
             arr.map((t, i) => ({ taskId: t.id, sortOrder: i + 1 })),
@@ -89,6 +91,58 @@ function DraggableTask({
         onBodyChange={onBodyChange}
       />
     </div>
+  )
+}
+
+interface EndDropZoneProps {
+  allTasks: AiTask[]
+  projectId: number
+  onReorderTasks: (
+    projectId: number,
+    updates: { taskId: number; sortOrder: number }[],
+  ) => void
+}
+
+function EndDropZone({
+  allTasks,
+  projectId,
+  onReorderTasks,
+}: EndDropZoneProps) {
+  const ref = useRef<HTMLDivElement>(null)
+  const allTasksRef = useRef(allTasks)
+  const [over, setOver] = useState(false)
+  useEffect(() => {
+    allTasksRef.current = allTasks
+  }, [allTasks])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    return dropTargetForElements({
+      element: el,
+      canDrop: ({ source }) =>
+        source.data.type === 'ai-task' && source.data.projectId === projectId,
+      onDragEnter: () => setOver(true),
+      onDragLeave: () => setOver(false),
+      onDrop: ({ source }) => {
+        setOver(false)
+        const sourceId = source.data.taskId as number
+        const arr = [...allTasksRef.current]
+        const srcIdx = arr.findIndex((t) => t.id === sourceId)
+        if (srcIdx === -1) return
+        const [moved] = arr.splice(srcIdx, 1)
+        arr.push(moved)
+        onReorderTasks(
+          projectId,
+          arr.map((t, i) => ({ taskId: t.id, sortOrder: i + 1 })),
+        )
+      },
+    })
+  }, [projectId, onReorderTasks])
+  return (
+    <div
+      ref={ref}
+      className={`ai-end-drop-zone${over ? ' ai-end-drop-zone-over' : ''}`}
+    />
   )
 }
 
@@ -290,6 +344,11 @@ export default function ProjectSection({
             onReorderTasks={onReorderTasks}
           />
         ))}
+      <EndDropZone
+        allTasks={tasks}
+        projectId={project.id}
+        onReorderTasks={onReorderTasks}
+      />
       <button
         type="button"
         className="ai-add-task-btn"

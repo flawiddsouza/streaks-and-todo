@@ -81,16 +81,18 @@ export default function AiTaskWorkspace() {
     setTasks((prev) => prev.filter((t) => t.projectId !== id))
   }
 
-  async function handleReorderProjects(
-    updates: { groupId: number; sortOrder: number }[],
-  ) {
-    // Optimistic update
-    const order = new Map(updates.map((u) => [u.groupId, u.sortOrder]))
-    setProjects((prev) =>
-      [...prev].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)),
-    )
-    await reorderAiProjects(wsId, updates)
-  }
+  const handleReorderProjects = useCallback(
+    async (updates: { groupId: number; sortOrder: number }[]) => {
+      const order = new Map(updates.map((u) => [u.groupId, u.sortOrder]))
+      setProjects((prev) =>
+        [...prev].sort(
+          (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+        ),
+      )
+      await reorderAiProjects(wsId, updates)
+    },
+    [wsId],
+  )
 
   async function handleAddTask(projectId: number, body: string) {
     const tempId = -Date.now()
@@ -127,19 +129,25 @@ export default function AiTaskWorkspace() {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, body } : t)))
   }
 
-  async function handleReorderTasks(
-    projectId: number,
-    updates: { taskId: number; sortOrder: number }[],
-  ) {
-    const order = new Map(updates.map((u) => [u.taskId, u.sortOrder]))
-    setTasks((prev) =>
-      [...prev].sort((a, b) => {
-        if (a.projectId !== projectId || b.projectId !== projectId) return 0
-        return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
-      }),
-    )
-    await reorderAiTasks(projectId, updates)
-  }
+  const handleReorderTasks = useCallback(
+    async (
+      projectId: number,
+      updates: { taskId: number; sortOrder: number }[],
+    ) => {
+      const order = new Map(updates.map((u) => [u.taskId, u.sortOrder]))
+      setTasks((prev) => {
+        const projectTasks = prev
+          .filter((t) => t.projectId === projectId)
+          .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+        let i = 0
+        return prev.map((t) =>
+          t.projectId === projectId ? projectTasks[i++] : t,
+        )
+      })
+      await reorderAiTasks(projectId, updates)
+    },
+    [],
+  )
 
   if (loading)
     return (

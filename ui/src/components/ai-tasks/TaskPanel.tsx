@@ -1,7 +1,53 @@
-import { useState } from 'react'
+import { dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import type { AiProject, AiTask } from '../../api'
 import ProjectSection from './ProjectSection'
+
+interface ProjectEndDropZoneProps {
+  allProjects: AiProject[]
+  onReorderProjects: (updates: { groupId: number; sortOrder: number }[]) => void
+}
+
+function ProjectEndDropZone({
+  allProjects,
+  onReorderProjects,
+}: ProjectEndDropZoneProps) {
+  const ref = useRef<HTMLDivElement>(null)
+  const allProjectsRef = useRef(allProjects)
+  const [over, setOver] = useState(false)
+  useEffect(() => {
+    allProjectsRef.current = allProjects
+  }, [allProjects])
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    return dropTargetForElements({
+      element: el,
+      canDrop: ({ source }) => source.data.type === 'ai-project',
+      onDragEnter: () => setOver(true),
+      onDragLeave: () => setOver(false),
+      onDrop: ({ source }) => {
+        setOver(false)
+        const sourceId = source.data.projectId as number
+        const arr = [...allProjectsRef.current]
+        const srcIdx = arr.findIndex((p) => p.id === sourceId)
+        if (srcIdx === -1) return
+        const [moved] = arr.splice(srcIdx, 1)
+        arr.push(moved)
+        onReorderProjects(
+          arr.map((p, i) => ({ groupId: p.id, sortOrder: i + 1 })),
+        )
+      },
+    })
+  }, [onReorderProjects])
+  return (
+    <div
+      ref={ref}
+      className={`ai-end-drop-zone${over ? ' ai-end-drop-zone-over' : ''}`}
+    />
+  )
+}
 
 interface Props {
   projects: AiProject[]
@@ -104,6 +150,10 @@ export default function TaskPanel({
             onReorderProjects={onReorderProjects}
           />
         ))}
+        <ProjectEndDropZone
+          allProjects={projects}
+          onReorderProjects={onReorderProjects}
+        />
         <button
           type="button"
           className="ai-add-project-btn"
