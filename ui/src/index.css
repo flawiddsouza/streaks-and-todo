@@ -254,8 +254,8 @@ select {
   overflow-y: auto;
   padding: 16px;
 }
-.ai-project {
-  margin-bottom: 24px;
+.ai-project + .ai-project {
+  margin-top: 24px;
 }
 .ai-project-header {
   display: flex;
@@ -328,6 +328,37 @@ select {
 }
 .ai-delete-popover-no:hover {
   color: #fff;
+}
+.ai-context-menu {
+  position: fixed;
+  z-index: 1001;
+  background: #1e1e35;
+  border: 1px solid #2a2a50;
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.ai-context-menu-item {
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 13px;
+  padding: 6px 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.ai-context-menu-item:hover {
+  background: #2a2a45;
+  color: #fff;
+}
+.ai-context-active {
+  outline: 2px solid #9ba8ff;
+  outline-offset: -2px;
 }
 .ai-project-name {
   font-size: 14px;
@@ -488,8 +519,8 @@ select {
 .ai-add-task-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 2px;
+  gap: 11px;
+  padding: 6px 2px 6px 23px;
   font-size: 13px;
   color: #444;
   cursor: pointer;
@@ -501,6 +532,11 @@ select {
 }
 .ai-add-task-btn:hover {
   color: #9ba8ff;
+}
+.ai-add-task-icon {
+  width: 17px;
+  text-align: center;
+  flex-shrink: 0;
 }
 .ai-add-project-btn {
   display: flex;

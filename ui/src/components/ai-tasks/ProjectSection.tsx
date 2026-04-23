@@ -5,6 +5,10 @@ import {
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
 import { useEffect, useRef, useState } from 'react'
 import type { AiProject, AiTask } from '../../api'
+import ContextMenu, {
+  type ContextMenuItem,
+  shouldSkipCustomMenu,
+} from './ContextMenu'
 import DeleteConfirmPopover from './DeleteConfirmPopover'
 import TaskRow from './TaskRow'
 
@@ -35,9 +39,37 @@ function DraggableTask({
   const ref = useRef<HTMLDivElement>(null)
   const allTasksRef = useRef(allTasks)
   const [over, setOver] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   useEffect(() => {
     allTasksRef.current = allTasks
   }, [allTasks])
+
+  function sendTaskTo(position: 'top' | 'bottom') {
+    const arr = [...allTasksRef.current]
+    const srcIdx = arr.findIndex((t) => t.id === task.id)
+    if (srcIdx === -1) return
+    const [moved] = arr.splice(srcIdx, 1)
+    if (position === 'top') arr.unshift(moved)
+    else arr.push(moved)
+    onReorderTasks(
+      projectId,
+      arr.map((t, i) => ({ taskId: t.id, sortOrder: i + 1 })),
+    )
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    if (shouldSkipCustomMenu(e)) return
+    e.preventDefault()
+    setMenu({ x: e.clientX, y: e.clientY })
+  }
+
+  const isAtTop = allTasks[0]?.id === task.id
+  const isAtBottom = allTasks[allTasks.length - 1]?.id === task.id
+  const items: ContextMenuItem[] = []
+  if (!isAtTop)
+    items.push({ label: 'Send to top', onClick: () => sendTaskTo('top') })
+  if (!isAtBottom)
+    items.push({ label: 'Send to bottom', onClick: () => sendTaskTo('bottom') })
 
   useEffect(() => {
     const el = ref.current
@@ -45,6 +77,7 @@ function DraggableTask({
     return combine(
       draggable({
         element: el,
+        canDrag: () => !el.querySelector('[contenteditable="plaintext-only"]'),
         getInitialData: () => ({ type: 'ai-task', taskId: task.id, projectId }),
         onDragStart: () => {
           el.style.opacity = '0.4'
@@ -81,8 +114,20 @@ function DraggableTask({
     )
   }, [task.id, projectId, onReorderTasks])
 
+  const wrapperClasses = [
+    over ? 'ai-drop-over-task' : null,
+    menu ? 'ai-context-active' : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div ref={ref} className={over ? 'ai-drop-over-task' : undefined}>
+    // biome-ignore lint/a11y/noStaticElementInteractions: wrapper exists to host drag + right-click affordances for the task row below
+    <div
+      ref={ref}
+      className={wrapperClasses || undefined}
+      onContextMenu={handleContextMenu}
+    >
       <TaskRow
         task={task}
         showDone={showDone}
@@ -90,6 +135,14 @@ function DraggableTask({
         onDelete={onDelete}
         onBodyChange={onBodyChange}
       />
+      {menu && items.length > 0 && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={items}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }
@@ -185,9 +238,40 @@ export default function ProjectSection({
   const allProjectsRef = useRef(allProjects)
   const [projectOver, setProjectOver] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   useEffect(() => {
     allProjectsRef.current = allProjects
   }, [allProjects])
+
+  function sendProjectTo(position: 'top' | 'bottom') {
+    const arr = [...allProjectsRef.current]
+    const srcIdx = arr.findIndex((p) => p.id === project.id)
+    if (srcIdx === -1) return
+    const [moved] = arr.splice(srcIdx, 1)
+    if (position === 'top') arr.unshift(moved)
+    else arr.push(moved)
+    onReorderProjects(arr.map((p, i) => ({ groupId: p.id, sortOrder: i + 1 })))
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    if (shouldSkipCustomMenu(e)) return
+    e.preventDefault()
+    setMenu({ x: e.clientX, y: e.clientY })
+  }
+
+  const isAtTop = allProjects[0]?.id === project.id
+  const isAtBottom = allProjects[allProjects.length - 1]?.id === project.id
+  const projectItems: ContextMenuItem[] = []
+  if (!isAtTop)
+    projectItems.push({
+      label: 'Send to top',
+      onClick: () => sendProjectTo('top'),
+    })
+  if (!isAtBottom)
+    projectItems.push({
+      label: 'Send to bottom',
+      onClick: () => sendProjectTo('bottom'),
+    })
 
   useEffect(() => {
     const el = outerRef.current
@@ -196,6 +280,7 @@ export default function ProjectSection({
       draggable({
         element: el,
         dragHandle: handleRef.current ?? undefined,
+        canDrag: () => !el.querySelector('[contenteditable="plaintext-only"]'),
         getInitialData: () => ({ type: 'ai-project', projectId: project.id }),
         onDragStart: () => {
           el.style.opacity = '0.5'
@@ -284,13 +369,18 @@ export default function ProjectSection({
     })
   }
 
+  const projectClasses = [
+    'ai-project',
+    projectOver ? 'ai-drop-over-project' : null,
+    menu ? 'ai-context-active' : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div
-      className={`ai-project${projectOver ? ' ai-drop-over-project' : ''}`}
-      ref={outerRef}
-      data-project-id={project.id}
-    >
-      <div className="ai-project-header">
+    <div className={projectClasses} ref={outerRef} data-project-id={project.id}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: header hosts drag + right-click affordances for the project; inner controls remain keyboard-accessible */}
+      <div className="ai-project-header" onContextMenu={handleContextMenu}>
         <span className="ai-project-drag-handle" ref={handleRef}>
           ⠿
         </span>
@@ -355,8 +445,17 @@ export default function ProjectSection({
         data-project-add={project.id}
         onClick={handleAddTask}
       >
-        ＋ Add task
+        <span className="ai-add-task-icon">＋</span>
+        Add task
       </button>
+      {menu && projectItems.length > 0 && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={projectItems}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   )
 }
