@@ -538,6 +538,39 @@ select {
   text-align: center;
   flex-shrink: 0;
 }
+.ai-task-body-editing {
+  min-height: 1.4em;
+  outline: none;
+  background: #12122a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  color: #fff;
+}
+.ai-insert-strip {
+  display: block;
+  width: 100%;
+  height: 8px;
+  padding: 0;
+  margin: -4px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+.ai-insert-strip-line {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: transparent;
+  border-radius: 1px;
+  transition: background 0.12s;
+  margin-top: 3px;
+}
+.ai-insert-strip:hover .ai-insert-strip-line {
+  background: #7c8cf8;
+}
 .ai-add-project-btn {
   display: flex;
   align-items: center;

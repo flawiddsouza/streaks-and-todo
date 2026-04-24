@@ -11,7 +11,7 @@ interface Props {
   onRenameProject: (id: number, name: string) => void
   onDeleteProject: (id: number) => void
   onReorderProjects: (updates: { groupId: number; sortOrder: number }[]) => void
-  onAddTask: (projectId: number, body: string) => void
+  onAddTask: (projectId: number, body: string, insertAt?: number) => void
   onToggleTask: (id: number) => void
   onDeleteTask: (id: number) => void
   onBodyChange: (id: number, body: string) => void

@@ -3,13 +3,15 @@ import {
   draggable,
   dropTargetForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { AiProject, AiTask } from '../../api'
+import AddTaskRow, { type AddTaskRowHandle } from './AddTaskRow'
 import ContextMenu, {
   type ContextMenuItem,
   shouldSkipCustomMenu,
 } from './ContextMenu'
 import DeleteConfirmPopover from './DeleteConfirmPopover'
+import InsertStrip from './InsertStrip'
 import TaskRow from './TaskRow'
 
 interface DraggableTaskProps {
@@ -24,6 +26,8 @@ interface DraggableTaskProps {
     projectId: number,
     updates: { taskId: number; sortOrder: number }[],
   ) => void
+  onInsertAbove: () => void
+  onInsertBelow: () => void
 }
 
 function DraggableTask({
@@ -35,6 +39,8 @@ function DraggableTask({
   onDelete,
   onBodyChange,
   onReorderTasks,
+  onInsertAbove,
+  onInsertBelow,
 }: DraggableTaskProps) {
   const ref = useRef<HTMLDivElement>(null)
   const allTasksRef = useRef(allTasks)
@@ -65,7 +71,10 @@ function DraggableTask({
 
   const isAtTop = allTasks[0]?.id === task.id
   const isAtBottom = allTasks[allTasks.length - 1]?.id === task.id
-  const items: ContextMenuItem[] = []
+  const items: ContextMenuItem[] = [
+    { label: 'Insert above', onClick: onInsertAbove },
+    { label: 'Insert below', onClick: onInsertBelow },
+  ]
   if (!isAtTop)
     items.push({ label: 'Send to top', onClick: () => sendTaskTo('top') })
   if (!isAtBottom)
@@ -206,7 +215,7 @@ interface Props {
   showDone: boolean
   onRename: (id: number, name: string) => void
   onDelete: (id: number) => void
-  onAddTask: (projectId: number, body: string) => void
+  onAddTask: (projectId: number, body: string, insertAt?: number) => void
   onToggleTask: (id: number) => void
   onDeleteTask: (id: number) => void
   onBodyChange: (id: number, body: string) => void
@@ -239,6 +248,19 @@ export default function ProjectSection({
   const [projectOver, setProjectOver] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [addingAt, setAddingAt] = useState<number | null>(null)
+  const editorRef = useRef<AddTaskRowHandle>(null)
+
+  function handleSwitchTo(newIdx: number) {
+    if (newIdx === addingAt) return
+    const text = editorRef.current?.flush() ?? null
+    let adjustedIdx = newIdx
+    if (text && addingAt !== null) {
+      onAddTask(project.id, text, addingAt)
+      if (addingAt <= newIdx) adjustedIdx += 1
+    }
+    setAddingAt(adjustedIdx)
+  }
   useEffect(() => {
     allProjectsRef.current = allProjects
   }, [allProjects])
@@ -339,34 +361,10 @@ export default function ProjectSection({
     el.addEventListener('keydown', onKey)
   }
 
-  function handleAddTask() {
-    const container = document.createElement('div')
-    container.className = 'ai-task-row adding'
-    container.innerHTML = `
-      <span class="ai-drag-handle">⠿</span>
-      <div class="ai-checkbox"></div>
-      <div class="ai-task-content">
-        <div class="ai-task-body" contenteditable="plaintext-only" style="min-height:1.4em;outline:none;background:#12122a;border-radius:4px;padding:4px 6px;margin:-4px -6px;color:#fff"></div>
-        <div class="ai-task-ts">added ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-      </div>`
-    const addBtn = document.querySelector(
-      `[data-project-add="${project.id}"]`,
-    ) as HTMLElement
-    addBtn?.parentNode?.insertBefore(container, addBtn)
-    const bodyEl = container.querySelector('.ai-task-body') as HTMLElement
-    bodyEl?.focus()
-    function commit() {
-      const text = bodyEl?.textContent?.trim() ?? ''
-      container.remove()
-      if (text) onAddTask(project.id, text)
-    }
-    bodyEl?.addEventListener('blur', commit)
-    bodyEl?.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        bodyEl.textContent = ''
-        container.remove()
-      }
-    })
+  function commitAddTask(body: string) {
+    const at = addingAt
+    setAddingAt(null)
+    if (body && at !== null) onAddTask(project.id, body, at)
   }
 
   const projectClasses = [
@@ -419,21 +417,40 @@ export default function ProjectSection({
           />
         )}
       </div>
-      {tasks
-        .filter((task) => !task.done || showDone)
-        .map((task) => (
-          <DraggableTask
-            key={task.id}
-            task={task}
-            allTasks={tasks}
-            projectId={project.id}
-            showDone={showDone}
-            onToggle={onToggleTask}
-            onDelete={onDeleteTask}
-            onBodyChange={onBodyChange}
-            onReorderTasks={onReorderTasks}
-          />
-        ))}
+      {tasks.map((task, fullIdx) => {
+        if (task.done && !showDone) return null
+        return (
+          <Fragment key={task.id}>
+            <InsertStrip onClick={() => handleSwitchTo(fullIdx)} />
+            {addingAt === fullIdx && (
+              <AddTaskRow
+                ref={editorRef}
+                onCommit={commitAddTask}
+                onCancel={() => setAddingAt(null)}
+              />
+            )}
+            <DraggableTask
+              task={task}
+              allTasks={tasks}
+              projectId={project.id}
+              showDone={showDone}
+              onToggle={onToggleTask}
+              onDelete={onDeleteTask}
+              onBodyChange={onBodyChange}
+              onReorderTasks={onReorderTasks}
+              onInsertAbove={() => handleSwitchTo(fullIdx)}
+              onInsertBelow={() => handleSwitchTo(fullIdx + 1)}
+            />
+          </Fragment>
+        )
+      })}
+      {addingAt === tasks.length && (
+        <AddTaskRow
+          ref={editorRef}
+          onCommit={commitAddTask}
+          onCancel={() => setAddingAt(null)}
+        />
+      )}
       <EndDropZone
         allTasks={tasks}
         projectId={project.id}
@@ -443,7 +460,8 @@ export default function ProjectSection({
         type="button"
         className="ai-add-task-btn"
         data-project-add={project.id}
-        onClick={handleAddTask}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => handleSwitchTo(tasks.length)}
       >
         <span className="ai-add-task-icon">＋</span>
         Add task

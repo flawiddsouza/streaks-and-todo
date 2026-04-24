@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router'
 import {
   type AiChatMessage,
@@ -28,6 +28,7 @@ export default function AiTaskWorkspace() {
   const [tasks, setTasks] = useState<AiTask[]>([])
   const [messages, setMessages] = useState<AiChatMessage[]>([])
   const [loading, setLoading] = useState(true)
+  const expectedOwnBroadcasts = useRef(0)
 
   const loadData = useCallback(async () => {
     try {
@@ -59,6 +60,10 @@ export default function AiTaskWorkspace() {
   useEffect(() => {
     return onEvent((evt) => {
       if (evt.type === 'ai-tasks.changed' && evt.workspaceId === wsId) {
+        if (expectedOwnBroadcasts.current > 0) {
+          expectedOwnBroadcasts.current -= 1
+          return
+        }
         fetchAiProjects(wsId).then(setProjects)
         fetchAiTasks(wsId).then(setTasks)
       }
@@ -94,7 +99,11 @@ export default function AiTaskWorkspace() {
     [wsId],
   )
 
-  async function handleAddTask(projectId: number, body: string) {
+  async function handleAddTask(
+    projectId: number,
+    body: string,
+    insertAt?: number,
+  ) {
     const tempId = -Date.now()
     const tempTask: AiTask = {
       id: tempId,
@@ -105,9 +114,48 @@ export default function AiTaskWorkspace() {
       createdAt: new Date().toISOString(),
       doneAt: null,
     }
-    setTasks((prev) => [...prev, tempTask])
-    const task = await createAiTask(projectId, body)
+
+    let isAppending = true
+    let orderedIds: number[] = []
+    setTasks((prev) => {
+      const projectTaskIndices: number[] = []
+      prev.forEach((t, i) => {
+        if (t.projectId === projectId) projectTaskIndices.push(i)
+      })
+      if (insertAt === undefined || insertAt >= projectTaskIndices.length) {
+        return [...prev, tempTask]
+      }
+      isAppending = false
+      const anchorIdx = projectTaskIndices[insertAt]
+      orderedIds = projectTaskIndices.map((i) => prev[i].id)
+      orderedIds.splice(insertAt, 0, tempId)
+      return [...prev.slice(0, anchorIdx), tempTask, ...prev.slice(anchorIdx)]
+    })
+
+    const expectedCount = isAppending ? 1 : 2
+    expectedOwnBroadcasts.current += expectedCount
+
+    let task: AiTask
+    try {
+      task = await createAiTask(projectId, body)
+    } catch (err) {
+      expectedOwnBroadcasts.current -= expectedCount
+      throw err
+    }
     setTasks((prev) => prev.map((t) => (t.id === tempId ? task : t)))
+
+    if (!isAppending) {
+      orderedIds = orderedIds.map((id) => (id === tempId ? task.id : id))
+      try {
+        await reorderAiTasks(
+          projectId,
+          orderedIds.map((id, i) => ({ taskId: id, sortOrder: i + 1 })),
+        )
+      } catch (err) {
+        expectedOwnBroadcasts.current -= 1
+        throw err
+      }
+    }
   }
 
   async function handleToggleTask(id: number) {
