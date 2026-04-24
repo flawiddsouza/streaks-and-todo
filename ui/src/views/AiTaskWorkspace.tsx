@@ -159,12 +159,30 @@ export default function AiTaskWorkspace() {
   }
 
   async function handleToggleTask(id: number) {
-    const result = await toggleAiTask(id)
+    const existing = tasks.find((t) => t.id === id)
+    if (!existing) return
+    const optimisticDone = !existing.done
+    const optimisticDoneAt = optimisticDone ? new Date().toISOString() : null
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === id ? { ...t, done: result.done, doneAt: result.doneAt } : t,
+        t.id === id
+          ? { ...t, done: optimisticDone, doneAt: optimisticDoneAt }
+          : t,
       ),
     )
+    expectedOwnBroadcasts.current += 1
+    try {
+      const result = await toggleAiTask(id)
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === id ? { ...t, done: result.done, doneAt: result.doneAt } : t,
+        ),
+      )
+    } catch (err) {
+      expectedOwnBroadcasts.current -= 1
+      setTasks((prev) => prev.map((t) => (t.id === id ? existing : t)))
+      throw err
+    }
   }
 
   async function handleDeleteTask(id: number) {

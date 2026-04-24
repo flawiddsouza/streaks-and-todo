@@ -3,7 +3,7 @@ import {
   draggable,
   dropTargetForElements,
 } from '@atlaskit/pragmatic-drag-and-drop/element/adapter'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { AiProject, AiTask } from '../../api'
 import AddTaskRow, { type AddTaskRowHandle } from './AddTaskRow'
 import ContextMenu, {
@@ -26,8 +26,9 @@ interface DraggableTaskProps {
     projectId: number,
     updates: { taskId: number; sortOrder: number }[],
   ) => void
-  onInsertAbove: () => void
-  onInsertBelow: () => void
+  onInsertAbove?: () => void
+  onInsertBelow?: () => void
+  displaced?: boolean
 }
 
 function DraggableTask({
@@ -41,6 +42,7 @@ function DraggableTask({
   onReorderTasks,
   onInsertAbove,
   onInsertBelow,
+  displaced = false,
 }: DraggableTaskProps) {
   const ref = useRef<HTMLDivElement>(null)
   const allTasksRef = useRef(allTasks)
@@ -71,13 +73,14 @@ function DraggableTask({
 
   const isAtTop = allTasks[0]?.id === task.id
   const isAtBottom = allTasks[allTasks.length - 1]?.id === task.id
-  const items: ContextMenuItem[] = [
-    { label: 'Insert above', onClick: onInsertAbove },
-    { label: 'Insert below', onClick: onInsertBelow },
-  ]
-  if (!isAtTop)
+  const items: ContextMenuItem[] = []
+  if (onInsertAbove)
+    items.push({ label: 'Insert above', onClick: onInsertAbove })
+  if (onInsertBelow)
+    items.push({ label: 'Insert below', onClick: onInsertBelow })
+  if (!displaced && !isAtTop)
     items.push({ label: 'Send to top', onClick: () => sendTaskTo('top') })
-  if (!isAtBottom)
+  if (!displaced && !isAtBottom)
     items.push({ label: 'Send to bottom', onClick: () => sendTaskTo('bottom') })
 
   useEffect(() => {
@@ -86,7 +89,8 @@ function DraggableTask({
     return combine(
       draggable({
         element: el,
-        canDrag: () => !el.querySelector('[contenteditable="plaintext-only"]'),
+        canDrag: () =>
+          !displaced && !el.querySelector('[contenteditable="plaintext-only"]'),
         getInitialData: () => ({ type: 'ai-task', taskId: task.id, projectId }),
         onDragStart: () => {
           el.style.opacity = '0.4'
@@ -98,6 +102,7 @@ function DraggableTask({
       dropTargetForElements({
         element: el,
         canDrop: ({ source }) =>
+          !displaced &&
           source.data.type === 'ai-task' &&
           source.data.taskId !== task.id &&
           source.data.projectId === projectId,
@@ -121,7 +126,7 @@ function DraggableTask({
         },
       }),
     )
-  }, [task.id, projectId, onReorderTasks])
+  }, [task.id, projectId, onReorderTasks, displaced])
 
   const wrapperClasses = [
     over ? 'ai-drop-over-task' : null,
@@ -213,6 +218,7 @@ interface Props {
   allProjects: AiProject[]
   tasks: AiTask[]
   showDone: boolean
+  sessionDoneIds: Set<number>
   onRename: (id: number, name: string) => void
   onDelete: (id: number) => void
   onAddTask: (projectId: number, body: string, insertAt?: number) => void
@@ -231,6 +237,7 @@ export default function ProjectSection({
   allProjects,
   tasks,
   showDone,
+  sessionDoneIds,
   onRename,
   onDelete,
   onAddTask,
@@ -250,6 +257,16 @@ export default function ProjectSection({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [addingAt, setAddingAt] = useState<number | null>(null)
   const editorRef = useRef<AddTaskRowHandle>(null)
+
+  const bottomDones = useMemo(() => {
+    if (!showDone) return [] as AiTask[]
+    const doneTasks = tasks.filter((t) => t.done)
+    doneTasks.sort((a, b) => {
+      const cmp = (b.doneAt ?? '').localeCompare(a.doneAt ?? '')
+      return cmp !== 0 ? cmp : b.id - a.id
+    })
+    return doneTasks
+  }, [tasks, showDone])
 
   function handleSwitchTo(newIdx: number) {
     if (newIdx === addingAt) return
@@ -418,7 +435,9 @@ export default function ProjectSection({
         )}
       </div>
       {tasks.map((task, fullIdx) => {
-        if (task.done && !showDone) return null
+        const isDisplaced =
+          task.done && (showDone || !sessionDoneIds.has(task.id))
+        if (isDisplaced) return null
         return (
           <Fragment key={task.id}>
             <InsertStrip onClick={() => handleSwitchTo(fullIdx)} />
@@ -451,6 +470,20 @@ export default function ProjectSection({
           onCancel={() => setAddingAt(null)}
         />
       )}
+      {bottomDones.map((task) => (
+        <DraggableTask
+          key={task.id}
+          task={task}
+          allTasks={tasks}
+          projectId={project.id}
+          showDone={showDone}
+          onToggle={onToggleTask}
+          onDelete={onDeleteTask}
+          onBodyChange={onBodyChange}
+          onReorderTasks={onReorderTasks}
+          displaced
+        />
+      ))}
       <EndDropZone
         allTasks={tasks}
         projectId={project.id}

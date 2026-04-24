@@ -36,7 +36,22 @@ export default function TaskPanel({
   onReorderTasks,
 }: Props) {
   const [showDone, setShowDone] = useState(false)
+  const [sessionDoneIds, setSessionDoneIds] = useState<Set<number>>(
+    () => new Set(),
+  )
   const doneCount = tasks.filter((t) => t.done).length
+
+  function handleToggleTask(id: number) {
+    const task = tasks.find((t) => t.id === id)
+    onToggleTask(id)
+    if (!task) return
+    setSessionDoneIds((prev) => {
+      const next = new Set(prev)
+      if (task.done) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   function handleAddProject() {
     const addBtn = document.querySelector('.ai-add-project-btn') as HTMLElement
@@ -80,7 +95,10 @@ export default function TaskPanel({
           <button
             type="button"
             className="ai-show-done-btn"
-            onClick={() => setShowDone((s) => !s)}
+            onClick={() => {
+              setShowDone((s) => !s)
+              setSessionDoneIds(new Set())
+            }}
           >
             {showDone ? 'Hide done' : `Show done (${doneCount})`}
           </button>
@@ -94,10 +112,11 @@ export default function TaskPanel({
             allProjects={projects}
             tasks={tasks.filter((t) => t.projectId === project.id)}
             showDone={showDone}
+            sessionDoneIds={sessionDoneIds}
             onRename={onRenameProject}
             onDelete={onDeleteProject}
             onAddTask={onAddTask}
-            onToggleTask={onToggleTask}
+            onToggleTask={handleToggleTask}
             onDeleteTask={onDeleteTask}
             onBodyChange={onBodyChange}
             onReorderTasks={onReorderTasks}
