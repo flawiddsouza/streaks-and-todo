@@ -583,6 +583,32 @@ export async function copyTaskToClipboard(
 }
 
 /**
+ * Prompt the user to confirm deleting a task log. Returns true when no
+ * confirmation is required (today's task) or when the user confirms.
+ * Callers can use this to gate optimistic state updates that should only
+ * happen after the user has confirmed.
+ */
+export async function confirmDeleteTaskLog(date: string): Promise<boolean> {
+  const currentDate = dayjs().format('YYYY-MM-DD')
+  const isFloatingTask = date === FLOATING_TASK_DATE
+
+  // No confirmation needed for today's tasks
+  if (date === currentDate && !isFloatingTask) return true
+
+  const message = isFloatingTask
+    ? 'Remove this task from floating tasks?'
+    : `Remove this task from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`
+
+  return confirmAsync({
+    title: 'Confirm delete',
+    message,
+    confirmLabel: 'Delete',
+    cancelLabel: 'Cancel',
+    maxWidth: '480px',
+  })
+}
+
+/**
  * Shared utility to delete a task log with optional confirmation
  * Used by TodoGroupTable, TodoCalendarView, and TodoKanbanView
  *
@@ -590,36 +616,24 @@ export async function copyTaskToClipboard(
  * @param date - The date of the task (for confirmation message)
  * @param groupId - The group ID
  * @param skipConfirmation - Whether to skip confirmation dialog (default: false for non-today dates)
+ * @returns true if the log was deleted, false if the user cancelled the confirmation
  */
 export async function deleteTaskLog(
   logId: number,
   date: string,
   groupId: number,
   skipConfirmation = false,
-): Promise<void> {
-  if (!groupId) return
+): Promise<boolean> {
+  if (!groupId) return false
 
-  const currentDate = dayjs().format('YYYY-MM-DD')
-  const isFloatingTask = date === FLOATING_TASK_DATE
-
-  // Only show confirmation if deleting from a date other than today (unless skipConfirmation is true)
-  if (!skipConfirmation && (date !== currentDate || isFloatingTask)) {
-    const message = isFloatingTask
-      ? 'Remove this task from floating tasks?'
-      : `Remove this task from ${dayjs(date).format('DD-MMM-YY')}? This will delete the record for that day.`
-
-    const confirmed = await confirmAsync({
-      title: 'Confirm delete',
-      message,
-      confirmLabel: 'Delete',
-      cancelLabel: 'Cancel',
-      maxWidth: '480px',
-    })
-    if (!confirmed) return
+  if (!skipConfirmation) {
+    const confirmed = await confirmDeleteTaskLog(date)
+    if (!confirmed) return false
   }
 
   try {
     await deleteTaskLogById(logId)
+    return true
   } catch (err) {
     console.error('Error deleting task:', err)
     throw err

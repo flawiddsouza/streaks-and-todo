@@ -29,6 +29,7 @@ import './TodoGroupTable.css'
 import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   addOrCreateTask,
+  confirmDeleteTaskLog,
   copyTaskToClipboard,
   createOneOffTaskAndAdd,
   deleteTaskLog,
@@ -1249,7 +1250,10 @@ export default function TodoGroupTable({
     async (logId: number, date: string) => {
       if (!groupId) return
 
-      // Optimistic: remove record from state
+      const confirmed = await confirmDeleteTaskLog(date)
+      if (!confirmed) return
+
+      // Optimistic: remove from state immediately after user confirms
       const group = taskData[0]
       if (group) {
         const taskIdx = group.tasks.findIndex((t) =>
@@ -1265,7 +1269,7 @@ export default function TodoGroupTable({
       }
 
       try {
-        await deleteTaskLog(logId, date, groupId)
+        await deleteTaskLog(logId, date, groupId, true)
       } catch (err) {
         console.error('Error deleting task:', err)
         await refreshDates([date])

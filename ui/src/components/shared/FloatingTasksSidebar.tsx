@@ -20,6 +20,7 @@ import { FLOATING_TASK_DATE } from '../../config'
 import { formatTaskWithExtraInfo } from '../../helpers'
 import {
   addOrCreateTask,
+  confirmDeleteTaskLog,
   copyTaskToClipboard,
   deleteTaskLog,
   processTaskInput,
@@ -543,7 +544,10 @@ export default function FloatingTasksSidebar({
     async (logId: number) => {
       if (!groupId) return
 
-      // Optimistic: remove record from state
+      const confirmed = await confirmDeleteTaskLog(FLOATING_TASK_DATE)
+      if (!confirmed) return
+
+      // Optimistic: remove from state immediately after user confirms
       const group = taskData[0]
       if (group) {
         const taskIdx = group.tasks.findIndex((t) =>
@@ -559,7 +563,7 @@ export default function FloatingTasksSidebar({
       }
 
       try {
-        await deleteTaskLog(logId, FLOATING_TASK_DATE, groupId, false)
+        await deleteTaskLog(logId, FLOATING_TASK_DATE, groupId, true)
       } catch (err) {
         console.error('Error deleting floating task:', err)
         const slice = await fetchGroupTaskDates(groupId, [FLOATING_TASK_DATE])
