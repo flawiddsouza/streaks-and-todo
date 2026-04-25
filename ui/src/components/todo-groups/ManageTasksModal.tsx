@@ -2,17 +2,20 @@ import Modal from '../shared/Modal'
 import '../shared/ManageGroupModal.css'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
+  type ApiFamilyFill,
   type ApiStreak,
   type ApiTaskFamily,
   addTaskToFamily,
   fetchAllStreaks,
   fetchTaskFamilies,
   fillMissingStreaksForTask,
+  previewAddTaskToFamily,
   removeTaskFromFamily,
   type TaskGroup,
 } from '../../api'
 import { type AppEvent, onEvent } from '../../events'
 import FamilyPickerModal from './FamilyPickerModal'
+import LinkAndFillConfirmModal from './LinkAndFillConfirmModal'
 import TaskFamilyEditor from './TaskFamilyEditor'
 
 interface ManageTasksModalProps {
@@ -58,6 +61,11 @@ export default function ManageTasksModal({
   const [confirmingRemoveTaskId, setConfirmingRemoveTaskId] = useState<
     number | null
   >(null)
+  const [pendingLink, setPendingLink] = useState<{
+    familyId: number
+    taskId: number
+    fills: ApiFamilyFill[]
+  } | null>(null)
   const [filter, setFilter] = useState<string>('')
   const [expandedFields, setExpandedFields] = useState<Record<number, boolean>>(
     {},
@@ -507,14 +515,52 @@ export default function ManageTasksModal({
               currentStreakId={drafts[t.id]?.streakId ?? null}
               allFamilies={allFamilies}
               onPicked={async (familyId) => {
-                await addTaskToFamily(familyId, t.id)
                 setLinkingFamilyForTaskId(null)
+                const fills = await previewAddTaskToFamily(familyId, t.id)
+                if (fills.length === 0) {
+                  await addTaskToFamily(familyId, t.id, false)
+                  return
+                }
+                setPendingLink({ familyId, taskId: t.id, fills })
               }}
               onCreated={(family) => {
                 setAllFamilies((prev) => [...prev, family])
                 setLinkingFamilyForTaskId(null)
               }}
               onClose={() => setLinkingFamilyForTaskId(null)}
+            />
+          )
+        })()}
+      {pendingLink &&
+        (() => {
+          const familyName =
+            allFamilies.find((f) => f.id === pendingLink.familyId)?.name ??
+            'family'
+          const taskName =
+            (group?.tasks ?? []).find((t) => t.id === pendingLink.taskId)
+              ?.task ?? 'task'
+          return (
+            <LinkAndFillConfirmModal
+              isOpen={true}
+              title={`Link "${taskName}" to "${familyName}"`}
+              fills={pendingLink.fills}
+              onCancel={() => setPendingLink(null)}
+              onLinkOnly={async () => {
+                await addTaskToFamily(
+                  pendingLink.familyId,
+                  pendingLink.taskId,
+                  false,
+                )
+                setPendingLink(null)
+              }}
+              onLinkAndFill={async () => {
+                await addTaskToFamily(
+                  pendingLink.familyId,
+                  pendingLink.taskId,
+                  true,
+                )
+                setPendingLink(null)
+              }}
             />
           )
         })()}

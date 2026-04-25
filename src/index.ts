@@ -70,49 +70,113 @@ function matchesPattern(pattern: string, name: string): boolean {
 }
 
 // When a task is marked done and it's linked to a streak, ensure the streak has a done log for the same date.
+// Returns true when the streak log was inserted or flipped to done.
 async function ensureStreakDoneForDate(
   streakId: number,
   date: string,
   userId: string,
-) {
+): Promise<boolean> {
   const existing = await db
-    .select()
+    .select({ done: streakLogTable.done })
     .from(streakLogTable)
     .where(
       and(eq(streakLogTable.streakId, streakId), eq(streakLogTable.date, date)),
     )
     .limit(1)
 
-  if (existing.length > 0) {
-    if (!existing[0].done) {
-      await db
-        .update(streakLogTable)
-        .set({ done: true })
-        .where(
-          and(
-            eq(streakLogTable.streakId, streakId),
-            eq(streakLogTable.date, date),
-          ),
-        )
-      // Notify listeners that a streak log changed due to linked task action
-      broadcast(userId, {
-        type: 'streak.log.updated',
-        streakId,
-        date,
-      })
-    }
-  } else {
+  let changed = false
+  if (existing.length === 0) {
     await db
       .insert(streakLogTable)
       .values({ userId, streakId, date, done: true })
-      .returning()
-    // New streak log inserted due to linked task action
-    broadcast(userId, {
-      type: 'streak.log.updated',
-      streakId,
-      date,
-    })
+    changed = true
+  } else if (!existing[0].done) {
+    await db
+      .update(streakLogTable)
+      .set({ done: true })
+      .where(
+        and(
+          eq(streakLogTable.streakId, streakId),
+          eq(streakLogTable.date, date),
+        ),
+      )
+    changed = true
   }
+
+  if (changed) {
+    broadcast(userId, { type: 'streak.log.updated', streakId, date })
+  }
+  return changed
+}
+
+async function previewMissingStreaksForTask(
+  taskId: number,
+  streakId: number,
+  userId: string,
+): Promise<{ taskId: number; taskName: string; dates: string[] }> {
+  const taskRow = await db
+    .select({ task: tasksTable.task })
+    .from(tasksTable)
+    .where(and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)))
+    .limit(1)
+  if (taskRow.length === 0) return { taskId, taskName: '', dates: [] }
+  const taskName = taskRow[0].task
+
+  const doneTaskRows = await db
+    .select({ date: taskLogTable.date })
+    .from(taskLogTable)
+    .where(
+      and(
+        eq(taskLogTable.taskId, taskId),
+        eq(taskLogTable.done, true),
+        eq(taskLogTable.userId, userId),
+      ),
+    )
+    .orderBy(taskLogTable.date)
+  const dates = Array.from(new Set(doneTaskRows.map((r) => r.date)))
+  if (dates.length === 0) return { taskId, taskName, dates: [] }
+
+  const streakRows = await db
+    .select({ date: streakLogTable.date, done: streakLogTable.done })
+    .from(streakLogTable)
+    .where(
+      and(
+        eq(streakLogTable.streakId, streakId),
+        inArray(streakLogTable.date, dates),
+      ),
+    )
+  const doneStreakDates = new Set(
+    streakRows.filter((r) => r.done).map((r) => r.date),
+  )
+  const missing = dates.filter((d) => !doneStreakDates.has(d))
+  return { taskId, taskName, dates: missing }
+}
+
+async function applyMissingStreaksForTask(
+  taskId: number,
+  streakId: number,
+  userId: string,
+): Promise<{ taskId: number; taskName: string; dates: string[] }> {
+  const preview = await previewMissingStreaksForTask(taskId, streakId, userId)
+  const added: string[] = []
+  for (const date of preview.dates) {
+    if (await ensureStreakDoneForDate(streakId, date, userId)) {
+      added.push(date)
+    }
+  }
+  return { ...preview, dates: added }
+}
+
+async function assertStreakOwned(
+  streakId: number,
+  userId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: streaksTable.id })
+    .from(streaksTable)
+    .where(and(eq(streaksTable.id, streakId), eq(streaksTable.userId, userId)))
+    .limit(1)
+  return rows.length > 0
 }
 
 // When a task is moved to undone and it's linked to a streak, clear the streak for that date.
@@ -3247,79 +3311,23 @@ const api = new Elysia({ prefix: '/api' })
                 return status(404, { message: 'Task not found' })
               }
 
-              const taskRow = found[0]
-              const linkedStreakId = taskRow.streakId
+              const linkedStreakId = found[0].streakId
               if (linkedStreakId == null) {
                 return status(400, {
                   message: 'Task is not linked to a streak',
                 })
               }
 
-              // Get distinct dates where this task has a done log
-              const rows = await db
-                .select({ date: taskLogTable.date })
-                .from(taskLogTable)
-                .where(
-                  and(
-                    eq(taskLogTable.taskId, taskIdNum),
-                    eq(taskLogTable.done, true),
-                    eq(taskLogTable.userId, userId),
-                  ),
-                )
-                .orderBy(taskLogTable.date)
-
-              const dates = Array.from(new Set(rows.map((r) => r.date)))
-              const added: string[] = []
-
-              for (const date of dates) {
-                const existing = await db
-                  .select()
-                  .from(streakLogTable)
-                  .where(
-                    and(
-                      eq(streakLogTable.streakId, linkedStreakId),
-                      eq(streakLogTable.date, date),
-                    ),
-                  )
-                  .limit(1)
-
-                if (existing.length === 0) {
-                  await db
-                    .insert(streakLogTable)
-                    .values({
-                      userId,
-                      streakId: linkedStreakId,
-                      date,
-                      done: true,
-                    })
-                    .returning()
-                  added.push(date)
-                  broadcast(userId, {
-                    type: 'streak.log.updated',
-                    streakId: linkedStreakId,
-                    date,
-                  })
-                } else if (!existing[0].done) {
-                  await db
-                    .update(streakLogTable)
-                    .set({ done: true })
-                    .where(
-                      and(
-                        eq(streakLogTable.streakId, linkedStreakId),
-                        eq(streakLogTable.date, date),
-                      ),
-                    )
-                  added.push(date)
-                  broadcast(userId, {
-                    type: 'streak.log.updated',
-                    streakId: linkedStreakId,
-                    date,
-                  })
-                }
-              }
-
+              const result = await applyMissingStreaksForTask(
+                taskIdNum,
+                linkedStreakId,
+                userId,
+              )
               return {
-                added: added.map((d) => ({ date: d, task: taskRow.task })),
+                added: result.dates.map((d) => ({
+                  date: d,
+                  task: result.taskName,
+                })),
               }
             } catch (err) {
               console.error('Error filling missing streak logs:', err)
@@ -3376,14 +3384,21 @@ const api = new Elysia({ prefix: '/api' })
         .post('/task-families', async ({ body, status, store }) => {
           try {
             const { userId } = store as AuthedStore
-            const { name, namePattern, defaultExtraInfo, streakId, taskId } =
-              body as {
-                name: string
-                namePattern?: string | null
-                defaultExtraInfo?: string | null
-                streakId?: number | null
-                taskId: number
-              }
+            const {
+              name,
+              namePattern,
+              defaultExtraInfo,
+              streakId,
+              taskId,
+              withFill,
+            } = body as {
+              name: string
+              namePattern?: string | null
+              defaultExtraInfo?: string | null
+              streakId?: number | null
+              taskId: number
+              withFill?: boolean
+            }
 
             if (!name?.trim()) {
               return status(400, { message: 'Family name is required' })
@@ -3401,22 +3416,13 @@ const api = new Elysia({ prefix: '/api' })
               return status(404, { message: 'Task not found' })
             }
 
-            if (streakId != null) {
-              const streakCheck = await db
-                .select({ id: streaksTable.id })
-                .from(streaksTable)
-                .where(
-                  and(
-                    eq(streaksTable.id, streakId),
-                    eq(streaksTable.userId, userId),
-                  ),
-                )
-                .limit(1)
-              if (streakCheck.length === 0)
-                return status(403, {
-                  message: 'Streak not found or not owned by user',
-                })
-            }
+            if (
+              streakId != null &&
+              !(await assertStreakOwned(streakId, userId))
+            )
+              return status(403, {
+                message: 'Streak not found or not owned by user',
+              })
 
             const [family] = await db
               .insert(taskFamiliesTable)
@@ -3441,10 +3447,69 @@ const api = new Elysia({ prefix: '/api' })
                 and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)),
               )
 
+            const fills: {
+              taskId: number
+              taskName: string
+              dates: string[]
+            }[] = []
+            if (withFill && family.streakId != null) {
+              const result = await applyMissingStreaksForTask(
+                taskId,
+                family.streakId,
+                userId,
+              )
+              if (result.dates.length > 0) fills.push(result)
+            }
+
             broadcast(userId, { type: 'task.families.changed' })
-            return { family }
+            return { family, fills }
           } catch (err) {
             console.error('Error creating task family:', err)
+            return status(500, { message: 'Internal server error' })
+          }
+        })
+        .post('/task-families/preview', async ({ body, status, store }) => {
+          try {
+            const { userId } = store as AuthedStore
+            const { streakId, taskId } = body as {
+              streakId?: number | null
+              taskId: number
+            }
+
+            const task = await db
+              .select({ id: tasksTable.id })
+              .from(tasksTable)
+              .where(
+                and(eq(tasksTable.id, taskId), eq(tasksTable.userId, userId)),
+              )
+              .limit(1)
+            if (task.length === 0)
+              return status(404, { message: 'Task not found' })
+
+            const fills: {
+              taskId: number
+              taskName: string
+              dates: string[]
+            }[] = []
+            if (
+              streakId != null &&
+              !(await assertStreakOwned(streakId, userId))
+            )
+              return status(403, {
+                message: 'Streak not found or not owned by user',
+              })
+
+            if (streakId != null) {
+              const preview = await previewMissingStreaksForTask(
+                taskId,
+                streakId,
+                userId,
+              )
+              if (preview.dates.length > 0) fills.push(preview)
+            }
+            return { fills }
+          } catch (err) {
+            console.error('Error previewing create family:', err)
             return status(500, { message: 'Internal server error' })
           }
         })
@@ -3458,13 +3523,19 @@ const api = new Elysia({ prefix: '/api' })
                 return status(400, { message: 'Invalid family ID' })
               }
 
-              const { name, namePattern, defaultExtraInfo, streakId } =
-                body as {
-                  name?: string
-                  namePattern?: string | null
-                  defaultExtraInfo?: string | null
-                  streakId?: number | null
-                }
+              const {
+                name,
+                namePattern,
+                defaultExtraInfo,
+                streakId,
+                withFill,
+              } = body as {
+                name?: string
+                namePattern?: string | null
+                defaultExtraInfo?: string | null
+                streakId?: number | null
+                withFill?: boolean
+              }
 
               const existing = await db
                 .select()
@@ -3481,22 +3552,13 @@ const api = new Elysia({ prefix: '/api' })
                 return status(404, { message: 'Family not found' })
               }
 
-              if (streakId != null) {
-                const streakCheck = await db
-                  .select({ id: streaksTable.id })
-                  .from(streaksTable)
-                  .where(
-                    and(
-                      eq(streaksTable.id, streakId),
-                      eq(streaksTable.userId, userId),
-                    ),
-                  )
-                  .limit(1)
-                if (streakCheck.length === 0)
-                  return status(403, {
-                    message: 'Streak not found or not owned by user',
-                  })
-              }
+              if (
+                streakId != null &&
+                !(await assertStreakOwned(streakId, userId))
+              )
+                return status(403, {
+                  message: 'Streak not found or not owned by user',
+                })
 
               const updates: Partial<typeof taskFamiliesTable.$inferInsert> = {
                 updatedAt: new Date(),
@@ -3540,8 +3602,33 @@ const api = new Elysia({ prefix: '/api' })
                   )
               }
 
+              const fills: {
+                taskId: number
+                taskName: string
+                dates: string[]
+              }[] = []
+              if (withFill && updated.streakId != null) {
+                const members = await db
+                  .select({ id: tasksTable.id })
+                  .from(tasksTable)
+                  .where(
+                    and(
+                      eq(tasksTable.familyId, familyId),
+                      eq(tasksTable.userId, userId),
+                    ),
+                  )
+                for (const m of members) {
+                  const result = await applyMissingStreaksForTask(
+                    m.id,
+                    updated.streakId,
+                    userId,
+                  )
+                  if (result.dates.length > 0) fills.push(result)
+                }
+              }
+
               broadcast(userId, { type: 'task.families.changed' })
-              return { family: updated }
+              return { family: updated, fills }
             } catch (err) {
               console.error('Error updating task family:', err)
               return status(500, { message: 'Internal server error' })
@@ -3601,7 +3688,69 @@ const api = new Elysia({ prefix: '/api' })
           },
         )
         .post(
-          '/task-families/:id/members',
+          '/task-families/:id/preview',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const familyId = parseInt(id)
+              if (Number.isNaN(familyId)) {
+                return status(400, { message: 'Invalid family ID' })
+              }
+
+              const { streakId } = body as { streakId?: number | null }
+
+              const familyRows = await db
+                .select()
+                .from(taskFamiliesTable)
+                .where(
+                  and(
+                    eq(taskFamiliesTable.id, familyId),
+                    eq(taskFamiliesTable.userId, userId),
+                  ),
+                )
+                .limit(1)
+              if (familyRows.length === 0)
+                return status(404, { message: 'Family not found' })
+
+              const effectiveStreakId =
+                streakId !== undefined ? streakId : familyRows[0].streakId
+              if (effectiveStreakId == null) return { fills: [] }
+
+              if (
+                streakId !== undefined &&
+                streakId !== null &&
+                streakId !== familyRows[0].streakId &&
+                !(await assertStreakOwned(streakId, userId))
+              )
+                return status(403, {
+                  message: 'Streak not found or not owned by user',
+                })
+
+              const members = await db
+                .select({ id: tasksTable.id })
+                .from(tasksTable)
+                .where(
+                  and(
+                    eq(tasksTable.familyId, familyId),
+                    eq(tasksTable.userId, userId),
+                  ),
+                )
+
+              const previews = await Promise.all(
+                members.map((m) =>
+                  previewMissingStreaksForTask(m.id, effectiveStreakId, userId),
+                ),
+              )
+              const fills = previews.filter((p) => p.dates.length > 0)
+              return { fills }
+            } catch (err) {
+              console.error('Error previewing family fill:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .post(
+          '/task-families/:id/members/preview',
           async ({ params: { id }, body, status, store }) => {
             try {
               const { userId } = store as AuthedStore
@@ -3611,6 +3760,68 @@ const api = new Elysia({ prefix: '/api' })
               }
 
               const { taskId } = body as { taskId: number }
+
+              const [familyRows, taskRows] = await Promise.all([
+                db
+                  .select()
+                  .from(taskFamiliesTable)
+                  .where(
+                    and(
+                      eq(taskFamiliesTable.id, familyId),
+                      eq(taskFamiliesTable.userId, userId),
+                    ),
+                  )
+                  .limit(1),
+                db
+                  .select()
+                  .from(tasksTable)
+                  .where(
+                    and(
+                      eq(tasksTable.id, taskId),
+                      eq(tasksTable.userId, userId),
+                    ),
+                  )
+                  .limit(1),
+              ])
+              if (familyRows.length === 0)
+                return status(404, { message: 'Family not found' })
+              if (taskRows.length === 0)
+                return status(404, { message: 'Task not found' })
+
+              const fills: {
+                taskId: number
+                taskName: string
+                dates: string[]
+              }[] = []
+              if (familyRows[0].streakId != null) {
+                const preview = await previewMissingStreaksForTask(
+                  taskId,
+                  familyRows[0].streakId,
+                  userId,
+                )
+                if (preview.dates.length > 0) fills.push(preview)
+              }
+              return { fills }
+            } catch (err) {
+              console.error('Error previewing add task to family:', err)
+              return status(500, { message: 'Internal server error' })
+            }
+          },
+        )
+        .post(
+          '/task-families/:id/members',
+          async ({ params: { id }, body, status, store }) => {
+            try {
+              const { userId } = store as AuthedStore
+              const familyId = parseInt(id)
+              if (Number.isNaN(familyId)) {
+                return status(400, { message: 'Invalid family ID' })
+              }
+
+              const { taskId, withFill } = body as {
+                taskId: number
+                withFill?: boolean
+              }
 
               const [family, task] = await Promise.all([
                 db
@@ -3653,8 +3864,22 @@ const api = new Elysia({ prefix: '/api' })
                 )
                 .returning()
 
+              const fills: {
+                taskId: number
+                taskName: string
+                dates: string[]
+              }[] = []
+              if (withFill && updated.streakId != null) {
+                const result = await applyMissingStreaksForTask(
+                  taskId,
+                  updated.streakId,
+                  userId,
+                )
+                if (result.dates.length > 0) fills.push(result)
+              }
+
               broadcast(userId, { type: 'task.families.changed' })
-              return { task: updated }
+              return { task: updated, fills }
             } catch (err) {
               console.error('Error adding task to family:', err)
               return status(500, { message: 'Internal server error' })

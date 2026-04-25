@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import {
+  type ApiFamilyFill,
   type ApiStreak,
   type ApiTaskFamily,
   deleteTaskFamily,
+  previewUpdateTaskFamily,
   updateTaskFamily,
 } from '../../api'
 import Modal from '../shared/Modal'
+import LinkAndFillConfirmModal from './LinkAndFillConfirmModal'
 
 interface TaskFamilyEditorProps {
   family: ApiTaskFamily
@@ -33,21 +36,44 @@ export default function TaskFamilyEditor({
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [pendingFills, setPendingFills] = useState<ApiFamilyFill[] | null>(null)
 
-  const handleSave = async () => {
-    if (!name.trim()) return
+  const performSave = async (withFill: boolean) => {
     setSaving(true)
     try {
-      const updated = await updateTaskFamily(family.id, {
+      const { family: updated } = await updateTaskFamily(family.id, {
         name: name.trim(),
         namePattern: namePattern.trim() || null,
         defaultExtraInfo: defaultExtraInfo.trim() || null,
         streakId,
+        withFill,
       })
       onSaved(updated)
     } catch (err) {
       alert((err as Error).message)
     } finally {
+      setSaving(false)
+      setPendingFills(null)
+    }
+  }
+
+  const handleSave = async () => {
+    if (!name.trim()) return
+    if (streakId == null || streakId === family.streakId) {
+      await performSave(false)
+      return
+    }
+    setSaving(true)
+    try {
+      const fills = await previewUpdateTaskFamily(family.id, { streakId })
+      if (fills.length === 0) {
+        await performSave(false)
+      } else {
+        setPendingFills(fills)
+        setSaving(false)
+      }
+    } catch (err) {
+      alert((err as Error).message)
       setSaving(false)
     }
   }
@@ -194,6 +220,16 @@ export default function TaskFamilyEditor({
           </div>
         </div>
       </div>
+      {pendingFills && (
+        <LinkAndFillConfirmModal
+          isOpen={true}
+          title={`Update streak link for "${family.name}"`}
+          fills={pendingFills}
+          onCancel={() => setPendingFills(null)}
+          onLinkOnly={() => performSave(false)}
+          onLinkAndFill={() => performSave(true)}
+        />
+      )}
     </Modal>
   )
 }

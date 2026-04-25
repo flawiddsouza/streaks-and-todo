@@ -1206,7 +1206,8 @@ export const createTaskFamily = async (payload: {
   defaultExtraInfo?: string | null
   streakId?: number | null
   taskId: number
-}): Promise<ApiTaskFamily> => {
+  withFill?: boolean
+}): Promise<{ family: ApiTaskFamily; fills: ApiFamilyFill[] }> => {
   const response = await apiFetch('/task-families', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1217,7 +1218,30 @@ export const createTaskFamily = async (payload: {
     throw new Error(err.message || 'Failed to create task family')
   }
   const data = await response.json()
-  return data.family
+  return { family: data.family, fills: data.fills ?? [] }
+}
+
+export const previewCreateTaskFamily = async (payload: {
+  taskId: number
+  streakId?: number | null
+}): Promise<ApiFamilyFill[]> => {
+  const response = await apiFetch('/task-families/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.message || 'Failed to preview create family')
+  }
+  const data = await response.json()
+  return data.fills ?? []
+}
+
+export interface ApiFamilyFill {
+  taskId: number
+  taskName: string
+  dates: string[]
 }
 
 export const updateTaskFamily = async (
@@ -1227,8 +1251,9 @@ export const updateTaskFamily = async (
     namePattern?: string | null
     defaultExtraInfo?: string | null
     streakId?: number | null
+    withFill?: boolean
   },
-): Promise<ApiTaskFamily> => {
+): Promise<{ family: ApiTaskFamily; fills: ApiFamilyFill[] }> => {
   const response = await apiFetch(`/task-families/${familyId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -1239,7 +1264,24 @@ export const updateTaskFamily = async (
     throw new Error(err.message || 'Failed to update task family')
   }
   const data = await response.json()
-  return data.family
+  return { family: data.family, fills: data.fills ?? [] }
+}
+
+export const previewUpdateTaskFamily = async (
+  familyId: number,
+  payload: { streakId?: number | null },
+): Promise<ApiFamilyFill[]> => {
+  const response = await apiFetch(`/task-families/${familyId}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.message || 'Failed to preview family update')
+  }
+  const data = await response.json()
+  return data.fills ?? []
 }
 
 export const deleteTaskFamily = async (familyId: number): Promise<void> => {
@@ -1252,16 +1294,39 @@ export const deleteTaskFamily = async (familyId: number): Promise<void> => {
 export const addTaskToFamily = async (
   familyId: number,
   taskId: number,
-): Promise<void> => {
+  withFill = false,
+): Promise<{ fills: ApiFamilyFill[] }> => {
   const response = await apiFetch(`/task-families/${familyId}/members`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ taskId }),
+    body: JSON.stringify({ taskId, withFill }),
   })
   if (!response.ok) {
     const err = await response.json().catch(() => ({}))
     throw new Error(err.message || 'Failed to add task to family')
   }
+  const data = await response.json()
+  return { fills: data.fills ?? [] }
+}
+
+export const previewAddTaskToFamily = async (
+  familyId: number,
+  taskId: number,
+): Promise<ApiFamilyFill[]> => {
+  const response = await apiFetch(
+    `/task-families/${familyId}/members/preview`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ taskId }),
+    },
+  )
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}))
+    throw new Error(err.message || 'Failed to preview add to family')
+  }
+  const data = await response.json()
+  return data.fills ?? []
 }
 
 export const removeTaskFromFamily = async (
