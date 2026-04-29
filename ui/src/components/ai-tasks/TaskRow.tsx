@@ -36,6 +36,7 @@ export default function TaskRow({
     : `added ${addedDate}`
 
   function startEdit(e: React.MouseEvent<HTMLDivElement>) {
+    e.stopPropagation()
     const el = bodyRef.current
     if (!el || el.contentEditable === 'plaintext-only') return
     const range = document.caretRangeFromPoint?.(e.clientX, e.clientY) ?? null
@@ -97,21 +98,22 @@ export default function TaskRow({
         {task.done ? '✓' : ''}
       </div>
       <div className="ai-task-content">
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: contentEditable edit target, only interactive when task is not done */}
+        {/* biome-ignore lint/a11y/useSemanticElements: needs contentEditable for inline edit, not replaceable with button */}
         <div
           ref={bodyRef}
           className="ai-task-body"
-          role={!task.done ? 'button' : undefined}
-          tabIndex={!task.done ? 0 : undefined}
-          onClick={!task.done ? startEdit : undefined}
-          onKeyDown={
-            !task.done
-              ? (e) => {
-                  if (e.key === 'Enter')
-                    (e.currentTarget as HTMLElement).click()
-                }
-              : undefined
-          }
+          role="button"
+          tabIndex={0}
+          onClick={startEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.stopPropagation()
+              ;(e.currentTarget as HTMLElement).click()
+            } else if (e.key === ' ') {
+              // prevent bubbling to row's Space toggle while focused/editing
+              e.stopPropagation()
+            }
+          }}
         >
           {task.body}
         </div>
