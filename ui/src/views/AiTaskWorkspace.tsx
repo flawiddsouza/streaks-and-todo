@@ -71,8 +71,25 @@ export default function AiTaskWorkspace() {
   }, [wsId])
 
   async function handleAddProject(name: string) {
-    const project = await createAiProject(wsId, name)
-    setProjects((prev) => [...prev, project])
+    const tempId = -Date.now()
+    const maxSort = projects.reduce((m, p) => Math.max(m, p.sortOrder ?? 0), 0)
+    const tempProject: AiProject = {
+      id: tempId,
+      name,
+      sortOrder: maxSort + 1,
+      group_id: wsId,
+    }
+    setProjects((prev) => [...prev, tempProject])
+    expectedOwnBroadcasts.current += 1
+    let project: AiProject
+    try {
+      project = await createAiProject(wsId, name)
+    } catch (err) {
+      expectedOwnBroadcasts.current -= 1
+      setProjects((prev) => prev.filter((p) => p.id !== tempId))
+      throw err
+    }
+    setProjects((prev) => prev.map((p) => (p.id === tempId ? project : p)))
   }
 
   async function handleRenameProject(id: number, name: string) {
@@ -81,9 +98,25 @@ export default function AiTaskWorkspace() {
   }
 
   async function handleDeleteProject(id: number) {
-    await deleteAiProject(id)
+    const deletedProject = projects.find((p) => p.id === id)
+    if (!deletedProject) return
+    const deletedIndex = projects.findIndex((p) => p.id === id)
+    const deletedTasks = tasks.filter((t) => t.projectId === id)
     setProjects((prev) => prev.filter((p) => p.id !== id))
     setTasks((prev) => prev.filter((t) => t.projectId !== id))
+    expectedOwnBroadcasts.current += 1
+    try {
+      await deleteAiProject(id)
+    } catch (err) {
+      expectedOwnBroadcasts.current -= 1
+      setProjects((prev) => {
+        const next = [...prev]
+        next.splice(Math.min(deletedIndex, next.length), 0, deletedProject)
+        return next
+      })
+      setTasks((prev) => [...prev, ...deletedTasks])
+      throw err
+    }
   }
 
   const handleReorderProjects = useCallback(
