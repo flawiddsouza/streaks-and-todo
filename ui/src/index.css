@@ -798,6 +798,170 @@ select {
   cursor: default;
 }
 
+/* ── AI Tasks: Mobile (<=900px) ───────────────────────── */
+@media (max-width: 900px) {
+  .page.ai-mobile {
+    flex-direction: column;
+  }
+
+  /* Hide the per-panel headers; mobile header takes over. */
+  .ai-mobile .ai-task-panel-header {
+    display: none;
+  }
+
+  /* Single-panel layout, full width, fills remaining height below the header. */
+  .ai-mobile .ai-task-panel,
+  .ai-mobile .ai-chat-panel {
+    width: 100%;
+    border-right: none;
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  /* Mobile header bar. */
+  .ai-mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #1a1a2e;
+    border-bottom: 1px solid #2a2a45;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .ai-mobile-header .ai-back-link {
+    font-size: 18px;
+    padding: 8px 6px;
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ai-mobile-tabs {
+    display: flex;
+    flex: 1;
+    gap: 0;
+    background: #13131f;
+    border: 1px solid #2a2a45;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .ai-mobile-tab {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    color: #888;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 12px;
+    min-height: 36px;
+    cursor: pointer;
+    position: relative;
+  }
+  .ai-mobile-tab + .ai-mobile-tab {
+    border-left: 1px solid #2a2a45;
+  }
+  .ai-mobile-tab-active {
+    color: #fff;
+    background: #252540;
+    box-shadow: inset 0 -2px 0 #7c8cf8;
+  }
+  .ai-mobile-tab-unread-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #7c8cf8;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .ai-mobile-header-right {
+    display: flex;
+    align-items: center;
+  }
+
+  /* Hide drag handles on mobile (no drag-and-drop). */
+  .ai-mobile .ai-drag-handle,
+  .ai-mobile .ai-project-drag-handle {
+    display: none;
+  }
+
+  /* Always show task action area on mobile (was hover-only). */
+  .ai-mobile .ai-task-actions {
+    opacity: 1;
+  }
+
+  /* Hide the desktop hover-only delete X on task rows; the ... button covers it via the menu. */
+  .ai-mobile .ai-task-actions .ai-action-btn.delete {
+    display: none;
+  }
+
+  /* Always-visible chat message delete X at low contrast. */
+  .ai-mobile .ai-msg-delete {
+    color: rgba(136, 136, 136, 0.45);
+  }
+  .ai-mobile .ai-msg-delete:active {
+    color: #ff6b6b;
+  }
+
+  /* Project delete X is hidden on mobile (Delete moves into the ... menu). */
+  .ai-mobile .ai-project-delete {
+    display: none;
+  }
+
+  /* The ... overflow button. */
+  .ai-row-overflow-btn {
+    background: none;
+    border: 0;
+    color: rgba(136, 136, 136, 0.55);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ai-row-overflow-btn:active {
+    color: #fff;
+  }
+  .ai-project-overflow-btn {
+    margin-left: auto;
+  }
+
+  /* Extend checkbox hit area to ~36px without changing its visual size. */
+  .ai-mobile .ai-checkbox {
+    position: relative;
+  }
+  .ai-mobile .ai-checkbox::after {
+    content: "";
+    position: absolute;
+    inset: -10px;
+  }
+
+  /* Bigger Send button on chat. */
+  .ai-mobile .ai-chat-send {
+    min-height: 36px;
+  }
+
+  /* Hide the hover insert strip on mobile (Insert above/below moves into ... menu). */
+  .ai-mobile .ai-insert-strip {
+    display: none !important;
+  }
+
+  /* Hide the end-drop zone on mobile (no DnD). */
+  .ai-mobile .ai-end-drop-zone {
+    display: none;
+  }
+}
+
 .form-field {
   display: flex;
   flex-direction: column;

@@ -29,6 +29,7 @@ interface DraggableTaskProps {
   onInsertAbove?: () => void
   onInsertBelow?: () => void
   displaced?: boolean
+  mobile?: boolean
 }
 
 function DraggableTask({
@@ -43,6 +44,7 @@ function DraggableTask({
   onInsertAbove,
   onInsertBelow,
   displaced = false,
+  mobile = false,
 }: DraggableTaskProps) {
   const ref = useRef<HTMLDivElement>(null)
   const allTasksRef = useRef(allTasks)
@@ -148,6 +150,8 @@ function DraggableTask({
         onToggle={onToggle}
         onDelete={onDelete}
         onBodyChange={onBodyChange}
+        mobile={mobile}
+        onOpenMenu={(a) => setMenu(a)}
       />
       {menu && items.length > 0 && (
         <ContextMenu
@@ -230,6 +234,7 @@ interface Props {
     updates: { taskId: number; sortOrder: number }[],
   ) => void
   onReorderProjects: (updates: { groupId: number; sortOrder: number }[]) => void
+  mobile?: boolean
 }
 
 export default function ProjectSection({
@@ -246,6 +251,7 @@ export default function ProjectSection({
   onBodyChange,
   onReorderTasks,
   onReorderProjects,
+  mobile = false,
 }: Props) {
   const nameRef = useRef<HTMLDivElement>(null)
   const outerRef = useRef<HTMLDivElement>(null)
@@ -311,6 +317,20 @@ export default function ProjectSection({
       label: 'Send to bottom',
       onClick: () => sendProjectTo('bottom'),
     })
+  if (mobile) {
+    projectItems.push({
+      label: 'Rename',
+      onClick: () => {
+        const el = nameRef.current
+        if (!el) return
+        el.click()
+      },
+    })
+    projectItems.push({
+      label: 'Delete',
+      onClick: () => setConfirmingDelete(true),
+    })
+  }
 
   useEffect(() => {
     const el = outerRef.current
@@ -412,6 +432,20 @@ export default function ProjectSection({
         >
           {project.name}
         </div>
+        {mobile && (
+          <button
+            type="button"
+            className="ai-row-overflow-btn ai-project-overflow-btn"
+            title="More"
+            onClick={(e) => {
+              e.stopPropagation()
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMenu({ x: rect.right, y: rect.bottom })
+            }}
+          >
+            ⋯
+          </button>
+        )}
         <button
           ref={deleteRef}
           type="button"
@@ -459,6 +493,7 @@ export default function ProjectSection({
               onReorderTasks={onReorderTasks}
               onInsertAbove={() => handleSwitchTo(fullIdx)}
               onInsertBelow={() => handleSwitchTo(fullIdx + 1)}
+              mobile={mobile}
             />
           </Fragment>
         )
@@ -482,6 +517,7 @@ export default function ProjectSection({
           onBodyChange={onBodyChange}
           onReorderTasks={onReorderTasks}
           displaced
+          mobile={mobile}
         />
       ))}
       <EndDropZone

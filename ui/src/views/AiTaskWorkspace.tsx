@@ -18,8 +18,19 @@ import {
   updateAiTask,
 } from '../api'
 import ChatPanel from '../components/ai-tasks/ChatPanel'
+import MobileHeader, {
+  type MobileTab,
+} from '../components/ai-tasks/MobileHeader'
 import TaskPanel from '../components/ai-tasks/TaskPanel'
 import { onEvent } from '../events'
+import useIsMobile from '../hooks/useIsMobile'
+
+const pageStyle: React.CSSProperties = {
+  padding: 0,
+  height: '100vh',
+  display: 'flex',
+  overflow: 'hidden',
+}
 
 export default function AiTaskWorkspace() {
   const { workspaceId } = useParams<{ workspaceId: string }>()
@@ -28,6 +39,17 @@ export default function AiTaskWorkspace() {
   const [tasks, setTasks] = useState<AiTask[]>([])
   const [messages, setMessages] = useState<AiChatMessage[]>([])
   const [loading, setLoading] = useState(true)
+  const [showDone, setShowDone] = useState(false)
+  const toggleShowDone = useCallback(() => setShowDone((s) => !s), [])
+  const isMobile = useIsMobile()
+  const [activeMobileTab, setActiveMobileTab] = useState<MobileTab>('tasks')
+  const [chatHasUnread, setChatHasUnread] = useState(false)
+  const doneCount = tasks.filter((t) => t.done).length
+
+  const handleTabChange = useCallback((tab: MobileTab) => {
+    setActiveMobileTab(tab)
+    if (tab === 'chat') setChatHasUnread(false)
+  }, [])
   const expectedOwnBroadcasts = useRef(0)
 
   const loadData = useCallback(async () => {
@@ -69,6 +91,27 @@ export default function AiTaskWorkspace() {
       }
     })
   }, [wsId])
+
+  const prevMessageCount = useRef<number | null>(null)
+  useEffect(() => {
+    if (loading) return
+    if (prevMessageCount.current === null) {
+      prevMessageCount.current = messages.length
+      return
+    }
+    const grew = messages.length > prevMessageCount.current
+    prevMessageCount.current = messages.length
+    if (!grew) return
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'assistant') return
+    if (isMobile && activeMobileTab !== 'chat') {
+      setChatHasUnread(true)
+    }
+  }, [messages, isMobile, activeMobileTab, loading])
+
+  useEffect(() => {
+    if (!isMobile) setChatHasUnread(false)
+  }, [isMobile])
 
   async function handleAddProject(name: string) {
     const tempId = -Date.now()
@@ -255,20 +298,55 @@ export default function AiTaskWorkspace() {
       </div>
     )
 
+  if (isMobile) {
+    return (
+      <div className="page ai-mobile" style={pageStyle}>
+        <MobileHeader
+          backHref="/ai-tasks"
+          activeTab={activeMobileTab}
+          onTabChange={handleTabChange}
+          chatHasUnread={chatHasUnread}
+          showDone={showDone}
+          onToggleShowDone={toggleShowDone}
+          doneCount={doneCount}
+        />
+        {activeMobileTab === 'tasks' ? (
+          <TaskPanel
+            mobile
+            projects={projects}
+            tasks={tasks}
+            backHref="/ai-tasks"
+            showDone={showDone}
+            onToggleShowDone={toggleShowDone}
+            onAddProject={handleAddProject}
+            onRenameProject={handleRenameProject}
+            onDeleteProject={handleDeleteProject}
+            onReorderProjects={handleReorderProjects}
+            onAddTask={handleAddTask}
+            onToggleTask={handleToggleTask}
+            onDeleteTask={handleDeleteTask}
+            onBodyChange={handleBodyChange}
+            onReorderTasks={handleReorderTasks}
+          />
+        ) : (
+          <ChatPanel
+            workspaceId={wsId}
+            messages={messages}
+            onMessagesChange={setMessages}
+          />
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div
-      className="page"
-      style={{
-        padding: 0,
-        height: '100vh',
-        display: 'flex',
-        overflow: 'hidden',
-      }}
-    >
+    <div className="page" style={pageStyle}>
       <TaskPanel
         projects={projects}
         tasks={tasks}
         backHref="/ai-tasks"
+        showDone={showDone}
+        onToggleShowDone={toggleShowDone}
         onAddProject={handleAddProject}
         onRenameProject={handleRenameProject}
         onDeleteProject={handleDeleteProject}

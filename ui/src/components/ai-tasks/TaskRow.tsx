@@ -8,6 +8,8 @@ interface Props {
   onToggle: (id: number) => void
   onDelete: (id: number) => void
   onBodyChange: (id: number, body: string) => void
+  mobile?: boolean
+  onOpenMenu?: (anchor: { x: number; y: number }) => void
 }
 
 export default function TaskRow({
@@ -16,6 +18,8 @@ export default function TaskRow({
   onToggle,
   onDelete,
   onBodyChange,
+  mobile = false,
+  onOpenMenu,
 }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const deleteRef = useRef<HTMLButtonElement>(null)
@@ -123,6 +127,20 @@ export default function TaskRow({
         className="ai-task-actions"
         style={confirmingDelete ? { opacity: 1 } : undefined}
       >
+        {mobile && onOpenMenu && (
+          <button
+            type="button"
+            className="ai-row-overflow-btn"
+            title="More"
+            onClick={(e) => {
+              e.stopPropagation()
+              const rect = e.currentTarget.getBoundingClientRect()
+              onOpenMenu({ x: rect.right, y: rect.bottom })
+            }}
+          >
+            ⋯
+          </button>
+        )}
         <button
           ref={deleteRef}
           type="button"

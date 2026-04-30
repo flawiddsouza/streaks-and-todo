@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import type { AiProject, AiTask } from '../../api'
 import ProjectSection from './ProjectSection'
@@ -7,6 +7,8 @@ interface Props {
   projects: AiProject[]
   tasks: AiTask[]
   backHref: string
+  showDone: boolean
+  onToggleShowDone: () => void
   onAddProject: (name: string) => void
   onRenameProject: (id: number, name: string) => void
   onDeleteProject: (id: number) => void
@@ -19,12 +21,15 @@ interface Props {
     projectId: number,
     updates: { taskId: number; sortOrder: number }[],
   ) => void
+  mobile?: boolean
 }
 
 export default function TaskPanel({
   projects,
   tasks,
   backHref,
+  showDone,
+  onToggleShowDone,
   onAddProject,
   onRenameProject,
   onDeleteProject,
@@ -34,11 +39,17 @@ export default function TaskPanel({
   onDeleteTask,
   onBodyChange,
   onReorderTasks,
+  mobile = false,
 }: Props) {
-  const [showDone, setShowDone] = useState(false)
   const [sessionDoneIds, setSessionDoneIds] = useState<Set<number>>(
     () => new Set(),
   )
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: showDone is a trigger, not a value read in the effect
+  useEffect(() => {
+    setSessionDoneIds(new Set())
+  }, [showDone])
+
   const doneCount = tasks.filter((t) => t.done).length
 
   function handleToggleTask(id: number) {
@@ -86,24 +97,23 @@ export default function TaskPanel({
 
   return (
     <div className="ai-task-panel">
-      <div className="ai-task-panel-header">
-        <Link to={backHref} className="ai-back-link">
-          ←
-        </Link>
-        <span>Tasks</span>
-        {doneCount > 0 && (
-          <button
-            type="button"
-            className="ai-show-done-btn"
-            onClick={() => {
-              setShowDone((s) => !s)
-              setSessionDoneIds(new Set())
-            }}
-          >
-            {showDone ? 'Hide done' : `Show done (${doneCount})`}
-          </button>
-        )}
-      </div>
+      {!mobile && (
+        <div className="ai-task-panel-header">
+          <Link to={backHref} className="ai-back-link">
+            ←
+          </Link>
+          <span>Tasks</span>
+          {doneCount > 0 && (
+            <button
+              type="button"
+              className="ai-show-done-btn"
+              onClick={onToggleShowDone}
+            >
+              {showDone ? 'Hide done' : `Show done (${doneCount})`}
+            </button>
+          )}
+        </div>
+      )}
       <div className="ai-task-panel-body">
         {projects.map((project) => (
           <ProjectSection
@@ -121,6 +131,7 @@ export default function TaskPanel({
             onBodyChange={onBodyChange}
             onReorderTasks={onReorderTasks}
             onReorderProjects={onReorderProjects}
+            mobile={mobile}
           />
         ))}
         <button
