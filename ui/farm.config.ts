@@ -1,11 +1,11 @@
 import { defineConfig } from '@farmfe/core'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   envDir: '..',
   plugins: ['@farmfe/plugin-react'],
   compilation: {
     output: {
-      publicPath: '/public/',
+      publicPath: mode === 'production' ? '/public/' : '/',
     },
   },
-})
+}))
